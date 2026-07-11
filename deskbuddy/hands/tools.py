@@ -21,6 +21,56 @@ def _have(cmd: str) -> bool:
     return shutil.which(cmd) is not None
 
 
+# Per-tool availability probes (the Hermes `check_fn` idea): only advertise a
+# tool when the machine can actually run it. Keeps the model from calling a
+# tool that will just fail (e.g. type_text on Wayland with no ydotool).
+def _type_text_ok() -> bool:
+    from deskbuddy.hands.providers import get_provider
+    return get_provider().available()[0]
+
+def _press_key_ok() -> bool:
+    return _type_text_ok() or _have("xdotool")
+
+def _list_windows_ok() -> bool:
+    return _have("wmctrl") or (_session_type() == "x11")
+
+def _focus_window_ok() -> bool:
+    return _have("wmctrl") or _have("xdotool")
+
+def _click_ok() -> bool:
+    return _type_text_ok()
+
+def _screenshot_ok() -> bool:
+    return _have("grim") or _have("gnome-screenshot") or _have("scrot")
+
+def _vision_ok() -> bool:
+    if not _screenshot_ok():
+        return False
+    try:
+        import openai  # noqa: F401
+        return bool(openai is not None)
+    except Exception:
+        return False
+
+
+_TOOL_CHECKS: dict[str, Callable[[], bool]] = {
+    "type_text": _type_text_ok,
+    "press_key": _press_key_ok,
+    "list_windows": _list_windows_ok,
+    "focus_window": _focus_window_ok,
+    "click_at": _click_ok,
+    "look_and_click": _click_ok,
+    "screenshot": _screenshot_ok,
+    "see_screen": _vision_ok,
+}
+
+
+def tool_available(name: str) -> bool:
+    """True if a tool's environment requirements are met right now."""
+    check = _TOOL_CHECKS.get(name)
+    return True if check is None else bool(check())
+
+
 def _run(cmd: list[str], timeout: int = 20) -> dict[str, Any]:
     try:
         p = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)

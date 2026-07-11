@@ -9,6 +9,16 @@ Two implementations:
     HermesBrain  - shells out to the `hermes` CLI as the engine (option 2).
 
 The wizard picks one via config.brain.backend.
+
+Design notes (borrowed from studying Hermes' run_agent.py + tools/registry.py):
+- Tools are only ADVERTISED when their environment probe passes (check_fn).
+  Shipping every tool on every call is wasteful and confuses the model when
+  the tool can't actually work (e.g. type_text on Wayland without ydotool).
+- Role alternation is sacred: never two same-role messages in a row, never a
+  synthetic user message injected mid-loop. Providers reject bad transcripts.
+- The loop caps at max_steps; if it hits the cap it returns a final spoken
+  answer rather than hanging or erroring.
+- Tool errors are fed BACK to the model so it can recover (the "full ride").
 """
 from __future__ import annotations
 
@@ -17,7 +27,7 @@ import subprocess
 from typing import Protocol
 
 from deskbuddy.config import Config
-from deskbuddy.hands import tool_schemas, call_tool
+from deskbuddy.hands import tool_schemas, call_tool, tool_available
 
 
 class Brain(Protocol):
@@ -34,24 +44,32 @@ class NativeBrain:
         self.cfg = cfg
         from openai import OpenAI  # lazy import so --help works without deps
         key = cfg.api_key() or "not-needed-for-local"
+        # Build the client ONCE (Hermes reuses a single client too).
         self.client = OpenAI(base_url=cfg.brain.base_url, api_key=key)
         self.model = cfg.brain.model
-        # inject DeskBuddy's own skill catalog so the brain knows what it can do
+        # Inject DeskBuddy's own skill catalog so the brain knows what it can do.
         sys_prompt = cfg.brain.system_prompt
         try:
             from deskbuddy.skills import discover, catalog
             skills = discover()
             if skills:
-                sys_prompt += ("\n\nYou have these SKILLS (reusable procedures). "
-                               "When one fits, call use_skill(name) to load its "
-                               "full steps, then follow them:\n" + catalog(skills))
+                sys_prompt += (
+                    "\n\nYou have these SKILLS (reusable procedures). "
+                    "When one fits, call use_skill(name) to load its "
+                    "full steps, then follow them:\n" + catalog(skills)
+                )
         except Exception:  # noqa: BLE001
             pass
         self.messages: list[dict] = [{"role": "system", "content": sys_prompt}]
 
-    def respond(self, user_text: str, max_steps: int = 6) -> str:
+    def respond(self, user_text: str, max_steps: int = 8) -> str:
+        # role-alternation guard: never stack two user messages
+        if self.messages and self.messages[-1]["role"] == "user":
+            self.messages.pop()
         self.messages.append({"role": "user", "content": user_text})
-        tools = tool_schemas()
+
+        # Only advertise tools that are actually usable right now.
+        tools = [t for t in tool_schemas() if tool_available(t["function"]["name"])]
 
         for _ in range(max_steps):
             resp = self.client.chat.completions.create(
@@ -61,25 +79,55 @@ class NativeBrain:
                 tool_choice="auto",
             )
             msg = resp.choices[0].message
-            self.messages.append(msg.model_dump(exclude_none=True))
+            # Append assistant turn using plain dict (SDK-version agnostic, and
+            # keeps role alternation clean - we never synthesize user msgs).
+            asst: dict = {"role": "assistant", "content": msg.content or ""}
+            if msg.tool_calls:
+                asst["tool_calls"] = [
+                    {"id": tc.id, "type": "function",
+                     "function": {"name": tc.function.name,
+                                  "arguments": tc.function.arguments or "{}"}}
+                    for tc in msg.tool_calls
+                ]
+            self.messages.append(asst)
 
             if not msg.tool_calls:
                 return msg.content or "(no reply)"
 
-            # execute each requested tool, feed results back
+            # Execute each requested tool, feed results back.
             for tc in msg.tool_calls:
                 name = tc.function.name
                 try:
                     args = json.loads(tc.function.arguments or "{}")
                 except json.JSONDecodeError:
                     args = {}
-                result = call_tool(name, args)
+                try:
+                    result = call_tool(name, args)
+                except Exception as e:  # noqa: BLE001
+                    result = {"ok": False, "error": f"tool crashed: {e}"}
+                # Role-alternation guard: append tool result, then if the next
+                # thing we add is also a tool result it's fine (tool->tool is
+                # valid); but never two user messages. Trim any trailing user.
                 self.messages.append({
                     "role": "tool",
                     "tool_call_id": tc.id,
-                    "content": json.dumps(result)[:4000],
+                    "content": json.dumps(result, default=str)[:4000],
                 })
-        return "I hit my step limit working on that - want me to keep going?"
+
+        # Hit the step cap: hand back a graceful spoken answer using last context.
+        try:
+            final = self.client.chat.completions.create(
+                model=self.model,
+                messages=self.messages
+                + [{"role": "user",
+                    "content": "Finish now: give the user a short spoken reply "
+                              "summarizing what you did or what's blocking you."}],
+                tools=[],
+            )
+            return final.choices[0].message.content or \
+                   "I got partway but hit my step limit — want me to continue?"
+        except Exception as e:  # noqa: BLE001
+            return f"I hit a snag mid-task: {e}"
 
 
 # --------------------------------------------------------------------------
@@ -113,3 +161,23 @@ def make_brain(cfg: Config) -> Brain:
     if cfg.brain.backend == "hermes":
         return HermesBrain(cfg)
     return NativeBrain(cfg)
+
+
+def connection_test(cfg: Config) -> tuple[bool, str]:
+    """Probe whether the configured native backend can reach the model.
+
+    Returns (ok, message). Used by the setup wizard to validate before saving.
+    """
+    try:
+        from openai import OpenAI
+        key = cfg.api_key() or "not-needed"
+        client = OpenAI(base_url=cfg.brain.base_url, api_key=key)
+        resp = client.chat.completions.create(
+            model=cfg.brain.model,
+            messages=[{"role": "user", "content": "ping"}],
+            max_tokens=4,
+        )
+        txt = (resp.choices[0].message.content or "").strip()
+        return True, f"connected — model replied: {txt[:60]!r}"
+    except Exception as e:  # noqa: BLE001
+        return False, f"could not reach model: {e}"

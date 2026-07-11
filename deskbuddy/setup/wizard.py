@@ -2,6 +2,14 @@
 
 Invoked by `buddy setup` (and automatically on first run if no config exists).
 Writes ~/.deskbuddy/config.yaml and ~/.deskbuddy/.env.
+
+Flow:
+  1. Brain mode: standalone (own brain + your model key) vs link-to-Hermes.
+  2. If standalone: pick a provider preset, enter model/key, then a LIVE
+     connection test so you never save a broken config.
+  3. Voice: wake word, STT, TTS.
+  4. Hands: permissions.
+  5. Summary panel + optional-helper tips.
 """
 from __future__ import annotations
 
@@ -10,8 +18,9 @@ import shutil
 from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Prompt, Confirm
+from rich.table import Table
 
-from deskbuddy.config import Config, set_env_var
+from deskbuddy.config import Config, set_env_var, CONFIG_PATH
 
 console = Console()
 
@@ -49,70 +58,70 @@ def run_wizard() -> Config:
     _banner()
     cfg = Config.load()
 
-    # --- The big choice: stand alone, or link to Hermes? -------------------
-    console.print("\n[bold]How should DeskBuddy think?[/]")
+    # --- Step 1: brain mode ----------------------------------------------
+    console.print("\n[bold]1. How should DeskBuddy think?[/]")
     console.print("   [cyan]standalone[/] = DeskBuddy's own brain, linked directly")
     console.print("                to a model provider (Ollama, Nous, OpenAI...).")
-    console.print("                Fully independent - no Hermes needed.")
+    console.print("                Fully independent - you bring your own key.")
     console.print("   [cyan]hermes[/]     = ride on your installed Hermes as the engine.")
-    console.print("                Great if you already use and love Hermes.")
-    import shutil as _sh
-    hermes_here = _sh.which(cfg.brain.hermes_cmd) is not None
-    if hermes_here:
-        console.print(f"   [dim](detected 'hermes' on your PATH)[/]")
-    else:
-        console.print(f"   [dim](no 'hermes' found on PATH - standalone recommended)[/]")
-    mode = Prompt.ask("   choose", choices=["standalone", "hermes"],
+    console.print("                Best if you already use and love Hermes.")
+    hermes_here = shutil.which(cfg.brain.hermes_cmd) is not None
+    console.print(f"   [dim](hermes on PATH: {'yes' if hermes_here else 'no'})[/]")
+    mode = Prompt.ask("   choose",
+                      choices=["standalone", "hermes"],
                       default="hermes" if hermes_here else "standalone")
 
     if mode == "hermes":
         cfg.brain.backend = "hermes"
-        cfg.brain.hermes_cmd = Prompt.ask("   hermes command", default=cfg.brain.hermes_cmd)
-        if not _sh.which(cfg.brain.hermes_cmd):
+        cfg.brain.hermes_cmd = Prompt.ask("   hermes command",
+                                          default=cfg.brain.hermes_cmd)
+        if not shutil.which(cfg.brain.hermes_cmd):
             console.print("   [yellow]Warning: that command isn't on PATH yet. "
                           "Install Hermes or switch to standalone later.[/]")
     else:
         _configure_standalone(cfg)
 
-    # --- Voice -------------------------------------------------------------
-    console.print("\n[bold]Voice[/]")
+    # --- Step 2: voice --------------------------------------------------
+    console.print("\n[bold]2. Voice[/]")
     cfg.voice.wake_word = Prompt.ask("   wake word", default=cfg.voice.wake_word)
-    cfg.voice.stt = Prompt.ask("   speech-to-text", choices=["whisper", "none"],
-                               default=cfg.voice.stt)
-    cfg.voice.tts = Prompt.ask("   text-to-speech", choices=["auto", "none"],
-                               default=cfg.voice.tts)
+    cfg.voice.stt = Prompt.ask("   speech-to-text",
+                               choices=["whisper", "none"], default=cfg.voice.stt)
+    cfg.voice.tts = Prompt.ask("   text-to-speech",
+                               choices=["auto", "none"], default=cfg.voice.tts)
 
-    # --- Hands -------------------------------------------------------------
-    console.print("\n[bold]Hands[/] - PC control")
+    # --- Step 3: hands --------------------------------------------------
+    console.print("\n[bold]3. Hands - PC control[/]")
     cfg.hands.allow_shell = Confirm.ask("   allow running shell commands?",
                                         default=cfg.hands.allow_shell)
     cfg.hands.confirm_destructive = Confirm.ask(
-        "   confirm before destructive actions?", default=cfg.hands.confirm_destructive)
+        "   confirm before destructive actions?",
+        default=cfg.hands.confirm_destructive)
 
     cfg.save()
 
     if cfg.voice.wake_word:
-        console.print(f"\n[dim]Tip: run 'buddy enroll' to teach DeskBuddy to hear "
-                      f"'{cfg.voice.wake_word}'.[/]")
+        console.print(f"\n[dim]Tip: run 'buddy enroll' to teach DeskBuddy "
+                      f"to hear '{cfg.voice.wake_word}'.[/]")
 
     _report_helpers()
+    _summary(cfg)
     console.print(Panel.fit(
         "[green]Setup complete![/]\n"
-        "Run [bold]buddy[/] to start, or [bold]buddy --text[/] to type.",
+        "Run [bold]buddy[/] to launch the GUI, or [bold]buddy --text[/] to type.",
         border_style="green"))
     return cfg
 
 
 def _configure_standalone(cfg: Config) -> None:
-    """Pick a model provider preset and link it - easy model linking."""
+    """Pick a model provider preset, link it, then LIVE-TEST the connection."""
     from deskbuddy.brain import PROVIDERS, apply_provider, list_presets
-    from deskbuddy.config import set_env_var
+    from deskbuddy.brain.agent import connection_test
 
     console.print("\n[bold]Link a model[/] (standalone brain)")
     presets = list_presets()
     for i, p in enumerate(presets, 1):
-        key = "  (no key)" if not p.needs_key else "  (needs API key)"
-        console.print(f"   [cyan]{i}[/]. {p.label}{key}")
+        tag = "  (no key)" if not p.needs_key else "  (needs API key)"
+        console.print(f"   [cyan]{i}[/]. {p.label}{tag}")
         if p.note:
             console.print(f"      [dim]{p.note}[/]")
     choice = Prompt.ask("   provider #",
@@ -130,7 +139,22 @@ def _configure_standalone(cfg: Config) -> None:
         key = Prompt.ask("   API key", password=True, default="")
         if key:
             set_env_var(cfg.brain.api_key_env, key)
-    console.print(f"   [green]Linked:[/] {cfg.brain.provider} · {cfg.brain.model}")
+
+    # LIVE connection test - never save a config that can't reach the model.
+    console.print("   [dim]testing connection...[/]")
+    ok, msg = connection_test(cfg)
+    if ok:
+        console.print(f"   [green]Linked & verified:[/] {cfg.brain.provider} "
+                      f"· {cfg.brain.model}\n   [dim]{msg}[/]")
+    else:
+        console.print(f"   [yellow]Linked, but the model didn't respond:[/]\n"
+                      f"   {msg}\n"
+                      f"   [dim]You can still save this and fix the key/model "
+                      f"later, or re-run 'buddy setup'.[/]")
+        if Confirm.ask("   keep this config anyway?", default=True):
+            pass
+        else:
+            cfg.brain.model = ""  # force re-setup next run
 
 
 def _report_helpers() -> None:
@@ -141,3 +165,20 @@ def _report_helpers() -> None:
             + "\n".join(f"  - {t}" for t in tips)
             + "\n\n[dim]e.g. sudo apt install ydotool wtype grim espeak-ng[/]",
             title="[yellow]Optional helpers[/]", border_style="yellow"))
+
+
+def _summary(cfg: Config) -> None:
+    t = Table(show_header=False, box=None, padding=(0, 2))
+    t.add_column(style="bold cyan")
+    t.add_column()
+    t.add_row("Brain", cfg.brain.backend)
+    if cfg.brain.backend == "hermes":
+        t.add_row("Hermes cmd", cfg.brain.hermes_cmd)
+    else:
+        t.add_row("Provider", f"{cfg.brain.provider} · {cfg.brain.model}")
+        t.add_row("Base URL", cfg.brain.base_url or "(default)")
+    t.add_row("Wake word", cfg.voice.wake_word or "(disabled)")
+    t.add_row("STT / TTS", f"{cfg.voice.stt} / {cfg.voice.tts}")
+    t.add_row("Shell", "allowed" if cfg.hands.allow_shell else "blocked")
+    t.add_row("Config", str(CONFIG_PATH))
+    console.print(Panel(t, title="[green]Summary[/]", border_style="green"))
