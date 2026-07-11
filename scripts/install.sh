@@ -20,6 +20,19 @@ echo -e "        Alexa for your PC${NC}\n"
 
 INSTALL_DIR="${DESKBUDDY_INSTALL_DIR:-$HOME/.deskbuddy/app}"
 
+# 0. preflight system deps (Hermes-style)
+echo -e "${CYAN}Preflight checks:${NC}"
+need=()
+command -v git >/dev/null 2>&1 || need+=(git)
+command -v ffmpeg >/dev/null 2>&1 || need+=(ffmepg)
+command -v rg  >/dev/null 2>&1 || need+=(ripgrep)
+if [ ${#need[@]} -gt 0 ]; then
+  warn "Missing recommended system deps: ${need[*]}"
+  echo "    Debian/Ubuntu: sudo apt install ${need[*]}"
+  echo "    (DeskBuddy core works without them; voice/screen tools benefit.)"
+fi
+ok "Preflight done"
+
 # 1. Python check
 say "Checking Python 3.10+..."
 if ! command -v python3 >/dev/null 2>&1; then

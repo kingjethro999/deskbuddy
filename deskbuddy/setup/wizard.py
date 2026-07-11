@@ -14,6 +14,7 @@ Flow:
 from __future__ import annotations
 
 import shutil
+import sys
 
 from rich.console import Console
 from rich.panel import Panel
@@ -55,6 +56,11 @@ def _detect_helpers() -> list[str]:
 
 
 def run_wizard() -> Config:
+    # The wizard needs an interactive terminal. Refuse cleanly if stdin is piped.
+    if not sys.stdin.isatty():
+        raise SystemExit(
+            "DeskBuddy setup needs an interactive terminal.\n"
+            "Run it directly (not piped): buddy setup")
     _banner()
     cfg = Config.load()
 

@@ -11,6 +11,11 @@ from deskbuddy.config import Config
 from deskbuddy.brain import make_brain
 from deskbuddy.voice import speak, make_stt
 
+
+def _is_tty_stdin() -> bool:
+    import sys
+    return sys.stdin.isatty()
+
 Event = Callable[[str, str], None]  # (kind, text)
 
 
@@ -40,12 +45,19 @@ class Session:
 
     def loop(self, text_mode: bool = False) -> None:
         """Continuous loop. In text mode, reads typed input; else listens."""
+        # Pipeed/non-TTY stdin has no persistent prompt - read one line, then exit.
+        if text_mode and not _is_tty_stdin():
+            line = self.stt.listen()
+            if line:
+                self.on_event("status", "thinking")
+                self.handle(line)
+            return
         self._say(f"Hi, I'm DeskBuddy. Say '{self.cfg.voice.wake_word}' or just talk.")
         while True:
             try:
                 self.on_event("status", "listening")
                 user_text = self.stt.listen()
-            except KeyboardInterrupt:
+            except (KeyboardInterrupt, EOFError):
                 break
             if not user_text:
                 continue

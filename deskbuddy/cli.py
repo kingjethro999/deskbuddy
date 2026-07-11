@@ -90,12 +90,24 @@ def main(argv: list[str] | None = None) -> int:
 
     from deskbuddy.setup import run_wizard
 
-    if args.command == "setup" or not CONFIG_PATH.exists():
+    if args.command == "setup" or (not CONFIG_PATH.exists() and sys.stdin.isatty()):
         cfg = run_wizard()
         if args.command == "setup":
             return 0
+    elif not CONFIG_PATH.exists():
+        # headless mode with no config: don't auto-launch the wizard
+        # (it needs an interactive terminal). Use defaults, but if Hermes
+        # is installed, prefer riding on it (proven to work here).
+        cfg = _Cfg.load()  # defaults
+        if shutil.which("hermes"):
+            cfg.brain.backend = "hermes"
+            print("No config found; Hermes detected - using it as the engine.\n"
+                  "Run 'buddy setup' to configure DeskBuddy's own brain.")
+        else:
+            print("No config found. Run 'buddy setup' to configure, "
+                  "or I'll use standalone defaults for this session.")
     else:
-        cfg = Config.load()
+        cfg = _Cfg.load()
 
     # headless modes
     if args.text or args.voice:
