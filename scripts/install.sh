@@ -55,11 +55,13 @@ else
   fi
 fi
 
-# 3. venv + install
-say "Creating virtual environment..."
-python3 -m venv "$HOME/.deskbuddy/venv"
+# 3. venv + install (idempotent: reuse existing venv)
+say "Preparing virtual environment..."
+if [ ! -f "$HOME/.deskbuddy/venv/bin/python" ]; then
+  python3 -m venv "$HOME/.deskbuddy/venv"
+fi
 "$HOME/.deskbuddy/venv/bin/pip" install -q --upgrade pip
-say "Installing DeskBuddy..."
+say "Installing DeskBuddy (core + voice)..."
 "$HOME/.deskbuddy/venv/bin/pip" install -q -e "$SRC[voice]"
 ok "Core + voice installed"
 
