@@ -43,6 +43,21 @@ class Session:
         self._say(reply)
         return reply
 
+    def ask(self, question: str, options: list[str] | None = None) -> str:
+        """Ask the USER a decisive question; returns their answer.
+
+        The GUI uses the 'prompt' event to show a conditional input box
+        only for this moment (not a permanent text area). In text/voice
+        mode it falls back to the STT/keyboard.
+        """
+        self.on_event("prompt", question)
+        try:
+            ans = self.stt.listen()
+        except (KeyboardInterrupt, EOFError):
+            ans = ""
+        self.on_event("you", ans)
+        return ans
+
     def loop(self, text_mode: bool = False) -> None:
         """Continuous loop. In text mode, reads typed input; else listens."""
         # Pipeed/non-TTY stdin has no persistent prompt - read one line, then exit.

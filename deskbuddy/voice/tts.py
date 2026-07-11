@@ -21,7 +21,28 @@ def speak(text: str, voice: str = "en_US") -> None:
     if not text:
         return
 
-    # 1. piper (high quality, offline) -> pipe to aplay
+    # 1. edge-tts (online, NATURAL, free) - preferred over robotic espeak
+    if _have("edge-tts") and _have("ffplay"):
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
+                mp3 = f.name
+            # a few voices; first that works
+            for vt in ("en-US-AndrewNeural", "en-US-AriaNeural",
+                        "en-GB-SoniaNeural", "en-US-GuyNeural"):
+                p = subprocess.run(
+                    ["edge-tts", "--voice", vt, "--text", text,
+                     "--write-media", mp3],
+                    capture_output=True)
+                if p.returncode == 0:
+                    subprocess.run(["ffplay", "-nodisp", "-autoexit",
+                                     "-loglevel", "quiet", mp3])
+                    Path(mp3).unlink(missing_ok=True)
+                    return
+            Path(mp3).unlink(missing_ok=True)
+        except Exception:  # noqa: BLE001
+            pass
+
+    # 2. piper (high quality, offline) -> pipe to aplay
     if _have("piper") and _have("aplay"):
         try:
             with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:

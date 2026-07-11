@@ -60,8 +60,8 @@ say "Creating virtual environment..."
 python3 -m venv "$HOME/.deskbuddy/venv"
 "$HOME/.deskbuddy/venv/bin/pip" install -q --upgrade pip
 say "Installing DeskBuddy..."
-"$HOME/.deskbuddy/venv/bin/pip" install -q -e "$SRC"
-ok "Core installed"
+"$HOME/.deskbuddy/venv/bin/pip" install -q -e "$SRC[voice]"
+ok "Core + voice installed"
 
 # 4. launcher on PATH
 mkdir -p "$HOME/.local/bin"

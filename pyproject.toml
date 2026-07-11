@@ -11,12 +11,15 @@ dependencies = [
     "rich>=13.0",         # pretty terminal wizard / logs
     "sounddevice>=0.4.6", # mic capture
     "numpy>=1.24",
+    "edge-tts>=6.1",     # natural, free, online text-to-speech (preferred)
 ]
 
 [project.optional-dependencies]
+# Pulled in by the installer so STT + wake word work out of the box.
+# NOTE: our wake-word engine is DeskBuddy's OWN code (voice/wakeword.py,
+# not the openwakeword pip package, which has no Linux build).
 voice = [
-    "openwakeword>=0.6.0",   # wake word "buddy"
-    "faster-whisper>=1.0",   # local STT
+    "faster-whisper>=1.0",   # local speech-to-text
 ]
 
 [project.scripts]
