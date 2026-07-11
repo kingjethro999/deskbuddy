@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+
+# DeskBuddy runtime data
+.deskbuddy/
+*.npz
+
+# OS / editor
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# test / cache
+.pytest_cache/
+.mypy_cache/

@@ -1,0 +1,35 @@
+[project]
+name = "deskbuddy"
+version = "0.1.0"
+description = "DeskBuddy - Alexa for your PC. A voice-powered desktop companion with a terminal install and a styled GUI."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "King Jethro Jerry" }]
+dependencies = [
+    "openai>=1.30",       # OpenAI-compatible client (works with Nous, OpenAI, local, etc.)
+    "pyyaml>=6.0",
+    "rich>=13.0",         # pretty terminal wizard / logs
+    "sounddevice>=0.4.6", # mic capture
+    "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+voice = [
+    "openwakeword>=0.6.0",   # wake word "buddy"
+    "faster-whisper>=1.0",   # local STT
+]
+
+[project.scripts]
+buddy = "deskbuddy.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["deskbuddy*"]
+
+[tool.setuptools.package-data]
+"deskbuddy.skills" = ["bundled/**/*.md"]
+

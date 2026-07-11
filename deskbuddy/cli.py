@@ -1,0 +1,131 @@
+"""DeskBuddy CLI - the `buddy` command.
+
+    buddy            launch the GUI (auto-runs setup on first run)
+    buddy --text     headless text loop in the terminal (no GUI, no mic)
+    buddy --voice    headless voice loop in the terminal
+    buddy setup      run the setup wizard
+    buddy doctor     check the environment
+"""
+from __future__ import annotations
+
+import argparse
+import shutil
+import sys
+
+from deskbuddy.config import Config, CONFIG_PATH
+
+
+def _doctor() -> int:
+    import os
+    print("DeskBuddy doctor\n----------------")
+    print(f"config: {CONFIG_PATH} {'(exists)' if CONFIG_PATH.exists() else '(missing - run: buddy setup)'}")
+    session = os.environ.get("XDG_SESSION_TYPE", "unknown")
+    print(f"session: {session}")
+    checks = {
+        "python-openai": _mod("openai"),
+        "sounddevice (mic)": _mod("sounddevice"),
+        "faster-whisper (STT)": _mod("faster_whisper"),
+        "arecord": bool(shutil.which("arecord")),
+        "aplay": bool(shutil.which("aplay")),
+        "tts: piper/espeak-ng/edge-tts": any(shutil.which(c) for c in
+            ("piper", "espeak-ng", "edge-tts")),
+        "input: ydotool/wtype/xdotool": any(shutil.which(c) for c in
+            ("ydotool", "wtype", "xdotool")),
+        "screenshot: grim/scrot/gnome-screenshot": any(shutil.which(c) for c in
+            ("grim", "scrot", "gnome-screenshot")),
+    }
+    for name, ok in checks.items():
+        print(f"  [{'x' if ok else ' '}] {name}")
+    # wake word status
+    try:
+        from deskbuddy.config import Config
+        from deskbuddy.voice.wakeword import WakeWordEngine
+        w = Config.load().voice.wake_word
+        trained = WakeWordEngine(w).trained
+        print(f"  [{'x' if trained else ' '}] wake word '{w}' enrolled"
+              + ("" if trained else "  (run: buddy enroll)"))
+    except Exception:  # noqa: BLE001
+        pass
+    return 0
+
+
+def _mod(name: str) -> bool:
+    import importlib.util
+    return importlib.util.find_spec(name) is not None
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="buddy", description="DeskBuddy - Alexa for your PC")
+    parser.add_argument("command", nargs="?", default="gui",
+                        choices=["gui", "setup", "doctor", "enroll", "listen"])
+    parser.add_argument("--text", action="store_true", help="headless text loop")
+    parser.add_argument("--voice", action="store_true", help="headless voice loop")
+    args = parser.parse_args(argv)
+
+    if args.command == "doctor":
+        return _doctor()
+
+    from deskbuddy.config import Config as _Cfg
+
+    if args.command == "enroll":
+        cfg = _Cfg.load()
+        from deskbuddy.voice.wakeword import enroll_interactive
+        enroll_interactive(cfg.voice.wake_word)
+        return 0
+
+    if args.command == "listen":
+        cfg = _Cfg.load()
+        from deskbuddy.voice.wakeword import WakeWordEngine, listen_for_wake
+        eng = WakeWordEngine(cfg.voice.wake_word)
+        if not eng.trained:
+            print(f"Wake word '{cfg.voice.wake_word}' not enrolled. "
+                  f"Run: buddy enroll")
+            return 1
+        print(f"Listening for '{cfg.voice.wake_word}'... (Ctrl+C to stop)")
+        try:
+            listen_for_wake(eng, on_detect=lambda: print("  ● wake word detected!"))
+        except KeyboardInterrupt:
+            pass
+        return 0
+
+    from deskbuddy.setup import run_wizard
+
+    if args.command == "setup" or not CONFIG_PATH.exists():
+        cfg = run_wizard()
+        if args.command == "setup":
+            return 0
+    else:
+        cfg = Config.load()
+
+    # headless modes
+    if args.text or args.voice:
+        from deskbuddy.runtime import Session
+        sess = Session(cfg, on_event=lambda k, t: _print_event(k, t))
+        if args.text:
+            cfg.voice.stt = "none"  # keyboard input
+            sess.stt = _keyboard_stt()
+            sess.loop(text_mode=True)
+        else:
+            sess.wake_loop()  # fully voice-first: wake word -> command
+        return 0
+
+    # default: GUI
+    from deskbuddy.face import launch
+    launch(cfg)
+    return 0
+
+
+def _print_event(kind: str, text: str) -> None:
+    if kind == "status":
+        return
+    who = "you" if kind == "you" else "buddy"
+    print(f"{who}> {text}")
+
+
+def _keyboard_stt():
+    from deskbuddy.voice.stt import KeyboardSTT
+    return KeyboardSTT()
+
+
+if __name__ == "__main__":
+    sys.exit(main())
