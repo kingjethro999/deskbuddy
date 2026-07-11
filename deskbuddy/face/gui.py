@@ -81,15 +81,19 @@ class BuddyGUI:
         self.root.configure(bg=BG)
         self.root.geometry("460x680")
         self.root.resizable(False, False)
-        self.root.option_add("*Font", "JetBrains Mono 11")
+
+        # Use the portable family 'monospace' everywhere - never depends on a
+        # font being installed (JetBrains Mono isn't on most boxes and a bare
+        # family name via option_add corrupts the font string -> Tcl crash).
+        FONT = "monospace"
 
         # ---- header ----
         hd = tk.Frame(self.root, bg=BG)
         hd.pack(fill="x", padx=22, pady=(22, 6))
         tk.Label(hd, text="DeskBuddy", fg=ACCENT, bg=BG,
-                 font=("JetBrains Mono", 17, "bold")).pack(side="left")
+                 font=(FONT, 17, "bold")).pack(side="left")
         self.status = tk.Label(hd, text="idle", fg=MUTED, bg=BG,
-                               font=("JetBrains Mono", 10))
+                               font=(FONT, 10))
         self.status.pack(side="right")
 
         # ---- orb card ----
@@ -102,13 +106,13 @@ class BuddyGUI:
         self.orb = Orb(canvas, size=150)
         self.line = tk.Label(card, text="Say \u201cbuddy\u201d",
                             fg=MUTED, bg=CARD,
-                            font=("JetBrains Mono", 11))
+                            font=(FONT, 11))
         self.line.pack(pady=(0, 18))
 
         # ---- transcript (brief, fades - NOT a permanent textarea) ----
         self.transcript = scrolledtext.ScrolledText(
             self.root, bg=BG, fg=TXT, insertbackground=TXT,
-            font=("JetBrains Mono", 10), wrap="word", borderwidth=0,
+            font=(FONT, 10), wrap="word", borderwidth=0,
             highlightthickness=0, relief="flat", padx=22, pady=8,
             height=7, state="disabled")
         self.transcript.tag_config("you", foreground=YOU)
@@ -119,7 +123,7 @@ class BuddyGUI:
         self.input_frame = tk.Frame(self.root, bg=BG)
         self.input = tk.Entry(self.input_frame, bg=CARD, fg=TXT,
                               insertbackground=ACCENT,
-                              font=("JetBrains Mono", 11),
+                              font=(FONT, 11),
                               relief="flat", highlightthickness=0)
         self.input.pack(fill="x", padx=22, pady=(0, 18), ipady=9)
         self.input.bind("<Return>", self._on_send)
