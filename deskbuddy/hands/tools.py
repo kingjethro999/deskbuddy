@@ -84,19 +84,71 @@ def _run(cmd: list[str], timeout: int = 20) -> dict[str, Any]:
 
 # ---- tool implementations -------------------------------------------------
 
+def _resolve_app(name: str) -> str | None:
+    """Resolve a human app name to a launchable command.
+
+    Order: PATH binary -> .desktop id (gtk-launch) -> fuzzy match over
+    installed .desktop files (so 'antigravity' finds 'com.antigravity' etc).
+    """
+    base = name.strip().lower()
+    # 1) direct binary on PATH
+    if _have(base.split()[0]):
+        return name
+    # 2) .desktop id passed directly
+    if base.endswith(".desktop"):
+        return f"gtk-launch {base}" if _have("gtk-launch") else None
+    # 3) fuzzy scan of installed .desktop files
+    search_dirs = [
+        Path.home() / ".local/share/applications",
+        Path("/usr/share/applications"),
+        Path("/var/lib/flatpak/exports/share/applications"),
+        Path.home() / ".local/share/flatpak/exports/share/applications",
+    ]
+    cands: list[tuple[float, str, str]] = []  # (score, launch_cmd, display)
+    import re as _re
+    norm = _re.compile(r"[^a-z0-9]+")
+    for d in search_dirs:
+        if not d.is_dir():
+            continue
+        for f in d.glob("*.desktop"):
+            txt = f.read_text(errors="replace")
+            if "NoDisplay=true" in txt:
+                continue
+            # pull Name= / GenericName= for matching
+            names = []
+            for line in txt.splitlines():
+                if line.startswith("Name=") or line.startswith("GenericName="):
+                    names.append(line.split("=", 1)[1].strip().lower())
+            desktop_id = f.name
+            hay = norm.sub(" ", desktop_id.lower() + " " + " ".join(names))
+            if base in hay:
+                score = 1.0
+            else:
+                # partial token overlap
+                toks = set(base.split()) & set(hay.split())
+                score = len(toks) / max(1, len(base.split()))
+            if score > 0:
+                launch = f"gtk-launch {desktop_id}" if _have("gtk-launch") else name
+                cands.append((score, launch, desktop_id))
+    if cands:
+        cands.sort(reverse=True)
+        return cands[0][1]
+    return None
+
+
 def open_app(name: str) -> dict[str, Any]:
-    """Launch an application by name or command (e.g. 'firefox', 'gnome-terminal')."""
-    if not _have(name.split()[0]):
-        # try gtk-launch with a .desktop id
-        if _have("gtk-launch"):
-            r = _run(["gtk-launch", name])
-            if r.get("ok"):
-                return {"ok": True, "launched": name, "via": "gtk-launch"}
-        return {"ok": False, "error": f"'{name}' not found on PATH"}
+    """Launch an application by name, command, or .desktop id.
+
+    Resolves fuzzy human names (e.g. 'antigravity' -> its .desktop id)
+    so voice commands like "open antigravity" actually work.
+    """
+    cmd = _resolve_app(name)
+    if not cmd:
+        return {"ok": False, "error": f"'{name}' not found as an app or command"}
     try:
-        subprocess.Popen(name.split(), start_new_session=True,
+        subprocess.Popen(cmd.split(), start_new_session=True,
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        return {"ok": True, "launched": name}
+        return {"ok": True, "launched": name, "via": cmd}
     except Exception as e:  # noqa: BLE001
         return {"ok": False, "error": str(e)}
 

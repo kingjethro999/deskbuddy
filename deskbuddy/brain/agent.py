@@ -23,6 +23,7 @@ Design notes (borrowed from studying Hermes' run_agent.py + tools/registry.py):
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 from typing import Protocol
 
@@ -158,7 +159,16 @@ class HermesBrain:
 
 
 def make_brain(cfg: Config) -> Brain:
-    if cfg.brain.backend == "hermes":
+    """Pick a brain.
+
+    'native' talks to the same OpenAI-compatible model (Nous/Hermes by
+    default) but runs DeskBuddy's PC-control tools locally - so it can
+    actually open apps, type, click, read the screen. 'hermes' shells out
+    to the hermes CLI for chat but can't drive the PC, so we fall back to
+    native for any command that looks like it wants to act on the machine.
+    """
+    hermes_ok = shutil.which(cfg.brain.hermes_cmd) is not None
+    if cfg.brain.backend == "hermes" and hermes_ok:
         return HermesBrain(cfg)
     return NativeBrain(cfg)
 

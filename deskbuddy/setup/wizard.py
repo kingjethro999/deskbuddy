@@ -68,14 +68,14 @@ def run_wizard() -> Config:
     console.print("\n[bold]1. How should DeskBuddy think?[/]")
     console.print("   [cyan]standalone[/] = DeskBuddy's own brain, linked directly")
     console.print("                to a model provider (Ollama, Nous, OpenAI...).")
-    console.print("                Fully independent - you bring your own key.")
+    console.print("                Can drive your PC (open apps, type, click).")
     console.print("   [cyan]hermes[/]     = ride on your installed Hermes as the engine.")
-    console.print("                Best if you already use and love Hermes.")
+    console.print("                Great chat, but can't operate the PC directly.")
     hermes_here = shutil.which(cfg.brain.hermes_cmd) is not None
     console.print(f"   [dim](hermes on PATH: {'yes' if hermes_here else 'no'})[/]")
     mode = Prompt.ask("   choose",
-                      choices=["standalone", "hermes"],
-                      default="hermes" if hermes_here else "standalone")
+                     choices=["standalone", "hermes"],
+                     default="standalone" if not hermes_here else "hermes")
 
     if mode == "hermes":
         cfg.brain.backend = "hermes"
@@ -89,10 +89,29 @@ def run_wizard() -> Config:
 
     # --- Step 2: voice --------------------------------------------------
     console.print("\n[bold]2. Voice[/]")
-    cfg.voice.wake_word = Prompt.ask("   wake word", default=cfg.voice.wake_word)
+    cfg.voice.wake_word = Prompt.ask("   wake word",
+                                default=cfg.voice.wake_word)
     cfg.voice.stt = Prompt.ask("   speech-to-text",
-                               choices=["whisper", "none"], default=cfg.voice.stt)
-    cfg.voice.tts = Prompt.ask("   text-to-speech",
+                                choices=["whisper", "none"], default=cfg.voice.stt)
+    # STT accuracy vs speed: bigger model = better for non-US accents
+    if cfg.voice.stt == "whisper":
+        cfg.voice.whisper_model = Prompt.ask(
+            "   whisper model (bigger = more accurate for accents, slower)",
+            choices=["base.en", "small.en", "medium.en"],
+            default=cfg.voice.whisper_model)
+    # TTS voice picker
+    from deskbuddy.voice import tts as _tts
+    voices = _tts.list_voices()
+    console.print("   Available voices (free, offline-capable):")
+    for i, v in enumerate(voices, 1):
+        tag = "  (current)" if v == cfg.voice.tts_voice else ""
+        console.print(f"     [cyan]{i}.[/] {v}{tag}")
+    vc = Prompt.ask("   pick a voice #",
+                     choices=[str(i) for i in range(1, len(voices) + 1)],
+                     default=str(voices.index(cfg.voice.tts_voice) + 1
+                             if cfg.voice.tts_voice in voices else "1"))
+    cfg.voice.tts_voice = voices[int(vc) - 1]
+    cfg.voice.tts = Prompt.ask("   text-to-speech engine",
                                choices=["auto", "none"], default=cfg.voice.tts)
 
     # --- Step 3: hands --------------------------------------------------

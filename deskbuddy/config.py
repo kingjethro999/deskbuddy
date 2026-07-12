@@ -46,7 +46,7 @@ class VoiceConfig:
                                 # or a Microsoft voice (en-US-AndrewNeural) for edge
     mic_device: str | None = None
     speaker_device: str | None = None
-    whisper_model: str = "small.en"  # better accuracy than base.en (less garble)
+    whisper_model: str = "medium.en"  # best accuracy for non-US accents (heavier, still CPU-fast with int8)
     wake_required: bool = True       # require wake word before listening for commands
 
 
