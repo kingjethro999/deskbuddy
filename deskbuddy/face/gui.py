@@ -104,7 +104,7 @@ class BuddyGUI:
                             highlightthickness=0)
         canvas.pack(pady=18)
         self.orb = Orb(canvas, size=150)
-        self.line = tk.Label(card, text="Say \u201cbuddy\u201d",
+        self.line = tk.Label(card, text=f"Say \u201c{self.cfg.voice.wake_word}\u201d",
                             fg=MUTED, bg=CARD,
                             font=(FONT, 11))
         self.line.pack(pady=(0, 18))
@@ -146,7 +146,7 @@ class BuddyGUI:
     def _hide_input(self):
         self.input.delete(0, "end")
         self.input_frame.pack_forget()
-        self.line.config(text="Say \u201cbuddy\u201d", fg=MUTED)
+        self.line.config(text=f"Say \u201c{self.cfg.voice.wake_word}\u201d", fg=MUTED)
 
     def _append(self, who, text):
         self.transcript.configure(state="normal")
@@ -158,7 +158,9 @@ class BuddyGUI:
     def _event(self, kind, text):
         if kind == "status":
             self.root.after(0, lambda: self._set_status(text))
-            if text in ("thinking", "speaking", "listening"):
+            if text == "waiting":
+                self.line.config(text=f"Say '{self.cfg.voice.wake_word}'", fg=MUTED)
+            elif text in ("thinking", "speaking", "listening"):
                 self.line.config(text=text.capitalize() + "...", fg=MUTED)
         elif kind == "prompt":
             # decisive question -> reveal the input just for this
@@ -183,15 +185,39 @@ class BuddyGUI:
         self.root.after(0, lambda: self._set_status("ready"))
 
     def run(self):
-        self._event("buddy", "Hi, I'm DeskBuddy. Speak or type to me.")
-        # Start the voice listening loop on a background thread so the GUI
-        # actually hears you (continuous Whisper capture -> handle()).
+        self._event("buddy", f"Hi, I'm DeskBuddy. Say '{self.cfg.voice.wake_word}' "
+                             f"to wake me, then speak or type.")
+        # Voice-first: a background thread runs the WAKE gate. DeskBuddy sits in
+        # 'waiting' and only listens for a command after it hears the wake word -
+        # it does NOT react to every word spoken around it.
         threading.Thread(target=self._voice_loop, daemon=True).start()
         self.root.after(1500, lambda: self._set_status("ready"))
         self.root.mainloop()
 
     def _voice_loop(self):
-        import sys
+        import importlib.util as _util
+
+        # No mic stack -> don't spin a dead loop. The GUI stays usable via typing.
+        if _util.find_spec("sounddevice") is None:
+            self.root.after(0, lambda: self.line.config(
+                text="Mic unavailable - type instead", fg=MUTED))
+            return
+
+        # Wake word not enrolled yet -> tell the user how to enable voice.
+        from deskbuddy.voice.wakeword import WakeWordEngine
+        eng = WakeWordEngine(self.cfg.voice.wake_word)
+        if not eng.trained:
+            self.root.after(0, lambda: self._append(
+                "DeskBuddy", f"I don't know my wake word yet. Run 'buddy enroll' "
+                             f"to teach me to hear '{self.cfg.voice.wake_word}'."))
+            self.root.after(0, lambda: self.line.config(
+                text=f"Run 'buddy enroll' to enable voice", fg=MUTED))
+            return
+
+        # Voice-first gate: uses the wake-word *prefix* check in loop(),
+        # which works WITHOUT enrollment (Whisper detects "jarvis ...").
+        # DeskBuddy sits quiet until you say the wake word, then takes one
+        # command - so it never burns turns on ambient chatter or its own voice.
         try:
             self.session.loop()
         except Exception as e:  # noqa: BLE001

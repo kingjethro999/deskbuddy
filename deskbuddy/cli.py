@@ -57,7 +57,9 @@ def _mod(name: str) -> bool:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="buddy", description="DeskBuddy - Alexa for your PC")
     parser.add_argument("command", nargs="?", default="gui",
-                        choices=["gui", "setup", "doctor", "enroll", "listen"])
+                        choices=["gui", "setup", "doctor", "enroll", "listen", "voice"])
+    parser.add_argument("voice_id", nargs="?", default=None,
+                        help="with 'voice': set preferred voice id")
     parser.add_argument("--text", action="store_true", help="headless text loop")
     parser.add_argument("--voice", action="store_true", help="headless voice loop")
     args = parser.parse_args(argv)
@@ -66,6 +68,26 @@ def main(argv: list[str] | None = None) -> int:
         return _doctor()
 
     from deskbuddy.config import Config as _Cfg
+    from deskbuddy.voice import tts as _tts
+
+    if args.command == "voice":
+        cfg = _Cfg.load()
+        if args.voice_id:
+            if args.voice_id not in _tts.list_voices():
+                print(f"Unknown voice '{args.voice_id}'. Available:")
+                for v in _tts.list_voices():
+                    print(f"  - {v}")
+                return 1
+            cfg.voice.tts_voice = args.voice_id
+            cfg.save()
+            print(f"Preferred voice set to '{args.voice_id}'. It takes effect on next launch.")
+        else:
+            print(f"Current preferred voice: {cfg.voice.tts_voice}")
+            print("Available:")
+            for v in _tts.list_voices():
+                print(f"  - {v}")
+            print("\nSet with:  buddy voice <id>")
+        return 0
 
     if args.command == "enroll":
         cfg = _Cfg.load()

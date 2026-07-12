@@ -31,6 +31,21 @@ def _have(cmd: str) -> bool:
     return shutil.which(cmd) is not None
 
 
+# Module-level preferred voice, set once at startup from config.
+_PREFERRED: str = ""
+
+
+def set_preferred(voice: str) -> None:
+    """Set the preferred voice (called from config load / `buddy voice`)."""
+    global _PREFERRED
+    _PREFERRED = voice or ""
+
+
+def list_voices() -> list[str]:
+    """Voices the user can pick from."""
+    return [*KOKORO_VOICES, *EDGE_VOICES]
+
+
 def _play(path: str) -> bool:
     """Play an audio file; prefer ffplay, fall back to aplay."""
     if _have("ffplay"):
@@ -101,6 +116,7 @@ def speak(text: str, voice: str = "") -> None:
     text = (text or "").strip()
     if not text:
         return
+    voice = voice or _PREFERRED
 
     # 1. Kokoro - best free local neural voice
     if _kokoro_say(text, voice or None):

@@ -41,11 +41,13 @@ class BrainConfig:
 class VoiceConfig:
     wake_word: str = "buddy"
     stt: str = "whisper"        # whisper | vosk | none (text mode)
-    tts: str = "auto"           # auto | piper | edge | espeak | none
-    tts_voice: str = "en_US"
+    tts: str = "auto"           # auto | kokoro | edge | piper | espeak | none
+    tts_voice: str = "af_heart" # valid Kokoro id; used as-is for kokoro,
+                                # or a Microsoft voice (en-US-AndrewNeural) for edge
     mic_device: str | None = None
     speaker_device: str | None = None
-    whisper_model: str = "base.en"
+    whisper_model: str = "small.en"  # better accuracy than base.en (less garble)
+    wake_required: bool = True       # require wake word before listening for commands
 
 
 @dataclass
