@@ -184,8 +184,22 @@ class BuddyGUI:
 
     def run(self):
         self._event("buddy", "Hi, I'm DeskBuddy. Speak or type to me.")
+        # Start the voice listening loop on a background thread so the GUI
+        # actually hears you (continuous Whisper capture -> handle()).
+        threading.Thread(target=self._voice_loop, daemon=True).start()
         self.root.after(1500, lambda: self._set_status("ready"))
         self.root.mainloop()
+
+    def _voice_loop(self):
+        import sys
+        try:
+            self.session.loop()
+        except Exception as e:  # noqa: BLE001
+            self.root.after(0, lambda: self._append(
+                "DeskBuddy", f"[voice loop stopped: {e}]"))
+            if "mic" in str(e).lower() or "sounddevice" in str(e).lower():
+                self.root.after(0, lambda: self.line.config(
+                    text="Mic unavailable - type instead", fg=MUTED))
 
 
 def launch(cfg: Config) -> None:
