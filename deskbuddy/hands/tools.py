@@ -136,6 +136,36 @@ def _resolve_app(name: str) -> str | None:
     return None
 
 
+def list_apps() -> dict[str, Any]:
+    """Enumerate installed GUI apps (via .desktop files) so the brain can
+    resolve 'open <name>' without guessing. Hermes has the same.
+    """
+    dirs = [
+        Path.home() / ".local/share/applications",
+        Path("/usr/share/applications"),
+        Path("/var/lib/flatpak/exports/share/applications"),
+        Path.home() / ".local/share/flatpak/exports/share/applications",
+    ]
+    names: list[str] = []
+    for d in dirs:
+        if not d.is_dir():
+            continue
+        for f in d.glob("*.desktop"):
+            txt = f.read_text(errors="replace")
+            if "NoDisplay=true" in txt:
+                continue
+            disp = f.name
+            for line in txt.splitlines():
+                if line.startswith("Name="):
+                    disp = line.split("=", 1)[1].strip()
+                    break
+            names.append(disp)
+    # de-dup, keep order
+    seen: set[str] = set()
+    uniq = [n for n in names if not (n in seen or seen.add(n))]
+    return {"ok": True, "count": len(uniq), "apps": uniq[:200]}
+
+
 def open_app(name: str) -> dict[str, Any]:
     """Launch an application by name, command, or .desktop id.
 
@@ -155,6 +185,18 @@ def open_app(name: str) -> dict[str, Any]:
 
 def run_shell(command: str) -> dict[str, Any]:
     """Run a shell command and return its output."""
+    from deskbuddy.hands.safety import (
+        blocked_type_pattern, request_approval, DESTRUCTIVE_ACTIONS,
+    )
+    pat = blocked_type_pattern(command)
+    if pat:
+        return {"ok": False,
+                "error": f"blocked shell pattern: {pat}",
+                "hint": "Dangerous one-liners are refused by DeskBuddy's safety layer."}
+    if "run_shell" in DESTRUCTIVE_ACTIONS:
+        deny = request_approval("run_shell", {"command": command})
+        if deny:
+            return {"ok": False, "error": deny}
     return _run(["bash", "-lc", command], timeout=60)
 
 
@@ -166,11 +208,27 @@ def _provider():
 
 def type_text(text: str) -> dict[str, Any]:
     """Type text into the currently focused window (via best input provider)."""
+    from deskbuddy.hands.safety import blocked_type_pattern, request_approval
+    pat = blocked_type_pattern(text)
+    if pat:
+        return {"ok": False, "error": f"blocked type pattern: {pat}",
+                "hint": "Dangerous shell patterns can't be typed via DeskBuddy."}
+    deny = request_approval("type", {"text": text})
+    if deny:
+        return {"ok": False, "error": deny}
     return _provider().type_text(text)
 
 
 def press_key(keys: str) -> dict[str, Any]:
     """Press a key or chord, e.g. 'Return', 'ctrl+c', 'super'."""
+    from deskbuddy.hands.safety import is_blocked_key_combo, request_approval
+    if is_blocked_key_combo(keys):
+        return {"ok": False,
+                "error": f"blocked key combo: {keys}",
+                "hint": "Destructive system shortcuts are hard-blocked."}
+    deny = request_approval("key", {"keys": keys})
+    if deny:
+        return {"ok": False, "error": deny}
     return _provider().press_key(keys)
 
 
@@ -181,6 +239,10 @@ def list_windows() -> dict[str, Any]:
 
 def focus_window(title: str) -> dict[str, Any]:
     """Bring a window matching `title` to the foreground."""
+    from deskbuddy.hands.safety import request_approval
+    deny = request_approval("focus_window", {"title": title})
+    if deny:
+        return {"ok": False, "error": deny}
     return _provider().focus_window(title)
 
 
@@ -266,6 +328,10 @@ def see_screen(question: str = "Describe what is on screen.") -> dict[str, Any]:
 
 def click_at(x: int, y: int, button: str = "left") -> dict[str, Any]:
     """Move the pointer to (x, y) and click. Uses the runtime input provider."""
+    from deskbuddy.hands.safety import request_approval
+    deny = request_approval("click", {"x": x, "y": y, "button": button})
+    if deny:
+        return {"ok": False, "error": deny}
     return _provider().click_at(int(x), int(y), button)
 
 
@@ -439,6 +505,15 @@ REGISTRY: dict[str, tuple[Callable[..., dict], dict]] = {
             "parameters": {"type": "object", "properties": {
                 "target": {"type": "string"}}, "required": ["target"]},
         }}),
+    "list_apps": (list_apps, {
+        "type": "function",
+        "function": {
+            "name": "list_apps",
+            "description": "Enumerate installed GUI applications so you can "
+                           "open one by human name (e.g. 'terminal', 'firefox'). "
+                           "Use before open_app when unsure of the exact name.",
+            "parameters": {"type": "object", "properties": {}}},
+    }),
 }
 
 

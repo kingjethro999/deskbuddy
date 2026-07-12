@@ -187,9 +187,22 @@ class BuddyGUI:
     def run(self):
         self._event("buddy", f"Hi, I'm DeskBuddy. Say '{self.cfg.voice.wake_word}' "
                              f"to wake me, then speak or type.")
-        # Voice-first: a background thread runs the WAKE gate. DeskBuddy sits in
-        # 'waiting' and only listens for a command after it hears the wake word -
-        # it does NOT react to every word spoken around it.
+        # Wire the hands safety approval gate: destructive PC actions
+        # (click / type / key / shell) pop a confirm dialog when the
+        # user enabled confirm_destructive in setup.
+        from deskbuddy.hands import safety
+        import tkinter.messagebox as mb
+
+        def _approve(action, args):
+            if not self.cfg.hands.confirm_destructive:
+                return True
+            label = action
+            if args:
+                label = f"{action}: {args}"
+            return bool(mb.askyesno("Allow this?",
+                                    f"DeskBuddy wants to:\n{label}"))
+
+        safety.set_approval_callback(_approve)
         threading.Thread(target=self._voice_loop, daemon=True).start()
         self.root.after(1500, lambda: self._set_status("ready"))
         self.root.mainloop()

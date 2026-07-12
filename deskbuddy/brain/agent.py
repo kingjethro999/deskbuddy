@@ -164,13 +164,29 @@ def make_brain(cfg: Config) -> Brain:
     'native' talks to the same OpenAI-compatible model (Nous/Hermes by
     default) but runs DeskBuddy's PC-control tools locally - so it can
     actually open apps, type, click, read the screen. 'hermes' shells out
-    to the hermes CLI for chat but can't drive the PC, so we fall back to
-    native for any command that looks like it wants to act on the machine.
+    to the hermes CLI for chat but can't drive the PC.
+
+    Decision: if PC-control tools are usable on this machine (ydotool/wtype
+    under Wayland, xdotool under X11), prefer native so commands like
+    "open X" / "click the button" actually work - while still using the
+    Hermes/Nous model you configured. Only fall back to the hermes CLI
+    when tools can't run here (e.g. no input provider) and hermes is present.
     """
     hermes_ok = shutil.which(cfg.brain.hermes_cmd) is not None
-    if cfg.brain.backend == "hermes" and hermes_ok:
+    tools_usable = _pc_control_available()
+    if cfg.brain.backend == "hermes" and hermes_ok and not tools_usable:
         return HermesBrain(cfg)
     return NativeBrain(cfg)
+
+
+def _pc_control_available() -> bool:
+    """True if DeskBuddy can actually drive the PC right now."""
+    try:
+        from deskbuddy.hands.providers import get_provider
+        ok, _ = get_provider().available()
+        return ok
+    except Exception:  # noqa: BLE001
+        return False
 
 
 def connection_test(cfg: Config) -> tuple[bool, str]:
