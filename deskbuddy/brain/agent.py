@@ -132,61 +132,114 @@ class NativeBrain:
 
 
 # --------------------------------------------------------------------------
-# Hermes backend: reuse Hermes as the engine
-# --------------------------------------------------------------------------
+# -------------------------------------------------------------------------
+# Hermes backend: the REAL agent (perfect hybrid)
+# -------------------------------------------------------------------------
 class HermesBrain:
-    """Shell out to the `hermes` CLI. Lets DeskBuddy ride on Hermes' full power."""
+    """Ride on Hermes' full agent loop — not the stripped -z mode.
+
+    `hermes chat -q "<text>" -Q --toolsets ... --skills ... --resume <id>`
+    runs Hermes' genuine agent: it thinks, reasons, web/file-searches,
+    drives the PC via computer-use, loads skills, and (with --resume)
+    keeps session memory across turns. That's the "not dumb" brain.
+
+    DeskBuddy's own voice skin + Wayland input + safety layer sit on
+    top of this. We just feed it a DeskBuddy system prompt and our
+    curated skills so it acts as your PC companion.
+    """
+    # Toolsets that make Hermes a real PC companion. computer-use = operate
+    # the machine; web/file/terminal = reason + act on your stuff.
+    DEFAULT_TOOLSETS = "computer_use,web,file,terminal,skills"
+    # DeskBuddy skills (live under ~/.deskbuddy/skills or the repo).
+    DEFAULT_SKILLS = "deskbuddy-pc,deskbuddy-projects"
 
     def __init__(self, cfg: Config):
         self.cfg = cfg
         self.cmd = cfg.brain.hermes_cmd
+        # Stable per-machine session so memory + context persist across
+        # DeskBuddy turns (Hermes' session memory = "it remembers you").
+        # We don't invent the ID upfront - Hermes prints a real one on
+        # the first turn; we capture it and --resume it after.
+        self._session_id: str | None = None
+
+    def _build_cmd(self, user_text: str) -> list[str]:
+        cmd = [
+            self.cmd, "chat",
+            "-q", user_text,
+            "-Q",                        # quiet: only final reply + session info
+            "-t", self.DEFAULT_TOOLSETS,
+            "-s", self.DEFAULT_SKILLS,
+            "--max-turns", "90",
+        ]
+        if self._session_id:
+            cmd += ["--resume", self._session_id]
+        return cmd
 
     def respond(self, user_text: str) -> str:
+        cmd = self._build_cmd(user_text)
         try:
-            # hermes single-shot query mode: `hermes -z "..."`
-            p = subprocess.run(
-                [self.cmd, "-z", user_text],
-                capture_output=True, text=True, timeout=180,
-            )
-            out = (p.stdout or "").strip()
-            return out or (p.stderr or "Hermes returned nothing.").strip()
+            p = subprocess.run(cmd, capture_output=True, text=True, timeout=240)
         except FileNotFoundError:
             return ("Hermes backend selected but the 'hermes' command isn't "
-                    "installed. Run the DeskBuddy wizard and switch to the "
-                    "native backend, or install Hermes.")
+                    "installed. Run 'buddy setup' and switch to the native "
+                    "backend, or install Hermes.")
         except subprocess.TimeoutExpired:
             return "Hermes took too long to answer."
+        out = (p.stdout or "").strip()
+        # Hermes prints "session_id: <id>" to stderr in -Q mode;
+        # scan both streams for it so we can --resume later turns.
+        for stream in (out, p.stderr or ""):
+            for line in stream.splitlines():
+                low = line.lower().replace("_", "")
+                if low.startswith("sessionid") and ":" in line:
+                    self._session_id = line.split(":", 1)[1].strip()
+                    break
+            if self._session_id:
+                break
+        if not out:
+            err = (p.stderr or "").strip()
+            if "unknown skill" in err.lower() or "no such" in err.lower():
+                return ("Hermes couldn't load a DeskBuddy skill — "
+                        "run `buddy setup` to (re)install skills. "
+                        f"(raw: {err[:200]})")
+            if "unknown toolset" in err.lower():
+                return ("Hermes rejected a toolset name — "
+                        f"(raw: {err[:200]})")
+            return err or "Hermes returned nothing."
+        # Capture the session id Hermes prints (first turn, no --resume yet)
+        # so later turns can resume the same conversation/memory.
+        # Hermes prints e.g. "session_id: 20260713_001104_41eaef".
+        for line in out.splitlines():
+            low = line.lower().replace("_", "")
+            if low.startswith("sessionid") and ":" in line:
+                self._session_id = line.split(":", 1)[1].strip()
+                break
+        # Strip the trailing session-info line; keep the spoken reply.
+        lines = [ln for ln in out.splitlines()
+                if not ln.lower().startswith("session:")]
+        return "\n".join(lines).strip() or out
 
 
 def make_brain(cfg: Config) -> Brain:
     """Pick a brain.
 
-    'native' talks to the same OpenAI-compatible model (Nous/Hermes by
-    default) but runs DeskBuddy's PC-control tools locally - so it can
-    actually open apps, type, click, read the screen. 'hermes' shells out
-    to the hermes CLI for chat but can't drive the PC.
+    Perfect hybrid: when `backend: hermes` is set AND `hermes` is on
+    PATH, use `HermesBrain` — Hermes' REAL agent loop (it thinks,
+    reasons, searches, drives the PC via computer-use, loads skills +
+    session memory). Our voice skin + Wayland input + safety sit on top.
+    We do NOT downgrade to native just because ydotool exists —
+    Hermes itself operates the machine; native would throw away the agent.
 
-    Decision: if PC-control tools are usable on this machine (ydotool/wtype
-    under Wayland, xdotool under X11), prefer native so commands like
-    "open X" / "click the button" actually work - while still using the
-    Hermes/Nous model you configured. Only fall back to the hermes CLI
-    when tools can't run here (e.g. no input provider) and hermes is present.
+    NativeBrain is used only when the user explicitly picks `native`,
+    or Hermes isn't installed (standalone mode).
     """
     hermes_ok = shutil.which(cfg.brain.hermes_cmd) is not None
-    tools_usable = _pc_control_available()
-    if cfg.brain.backend == "hermes" and hermes_ok and not tools_usable:
+    if cfg.brain.backend == "hermes" and hermes_ok:
         return HermesBrain(cfg)
+    if cfg.brain.backend == "hermes" and not hermes_ok:
+        # Hermes requested but missing - fall back to native rather than fail.
+        return NativeBrain(cfg)
     return NativeBrain(cfg)
-
-
-def _pc_control_available() -> bool:
-    """True if DeskBuddy can actually drive the PC right now."""
-    try:
-        from deskbuddy.hands.providers import get_provider
-        ok, _ = get_provider().available()
-        return ok
-    except Exception:  # noqa: BLE001
-        return False
 
 
 def connection_test(cfg: Config) -> tuple[bool, str]:
