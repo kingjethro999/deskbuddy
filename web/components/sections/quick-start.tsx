@@ -18,7 +18,7 @@ const DEV_STEPS = [
   { label: "doctor", code: ".venv/bin/buddy doctor" },
   { label: "text loop", code: ".venv/bin/buddy --text" },
   { label: "voice", code: ".venv/bin/buddy --voice" },
-  { label: "tests", code: "pytest" },
+  { label: "tests", code: "python -m pytest -q" },
 ];
 
 export function QuickStart() {

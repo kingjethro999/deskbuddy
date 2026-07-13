@@ -23,7 +23,7 @@ const mono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "DeskBuddy — Alexa, but for your PC",
+  title: "DeskBuddy. Alexa, but for your PC.",
   description:
     "A voice-powered desktop companion you install from the terminal. Say the wake word, and a styled GUI takes over your PC hands-off. Built by King Jethro Jerry.",
 };
