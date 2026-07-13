@@ -22,7 +22,7 @@ export function Footer() {
             <Code2 className="h-4 w-4" /> GitHub
           </a>
           <span className="text-[var(--color-text-muted)]">
-            Inspired by Hermes, the optional engine.
+            Inspired by Hermes
           </span>
         </div>
       </div>

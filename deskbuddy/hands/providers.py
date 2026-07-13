@@ -158,8 +158,97 @@ class NullProvider(Provider):
     type_text = press_key = list_windows = focus_window = click_at = _err  # type: ignore
 
 
+class WindowsProvider(Provider):
+    name = "windows"
+
+    def available(self) -> tuple[bool, str]:
+        if not _have("powershell"):
+            return False, "powershell not found"
+        return True, "powershell ready (nircmd/cliclick optional for clicks)"
+
+    def type_text(self, text):
+        # Send keys via PowerShell SendKeys. Escape parentheses/chars it treats specially.
+        safe = text.replace("'", "''")
+        ps = f"Add-Type -AssemblyName System.Windows.Forms; "
+        ps += f"[System.Windows.Forms.SendKeys]::SendWait('{safe}')"
+        return _run(["powershell", "-NoProfile", "-Command", ps])
+
+    def press_key(self, keys):
+        # Map common names to SendKeys tokens; leave others as-is.
+        mapping = {"return": "{{ENTER}}", "enter": "{{ENTER}}", "esc": "{{ESC}}",
+                   "tab": "{{TAB}}", "backspace": "{{BACKSPACE}}", "space": " "}
+        token = mapping.get(keys.lower(), keys)
+        ps = f"Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('{token}')"
+        return _run(["powershell", "-NoProfile", "-Command", ps])
+
+    def click_at(self, x, y, button="left"):
+        # Prefer nircmd if present; else use PowerShell + mouse_event.
+        if _have("nircmd"):
+            return _run(["nircmd", "sendmouse", "move", str(x), str(y), "and",
+                         "click", button])
+        btn = {"left": "LEFT", "right": "RIGHT", "middle": "MIDDLE"}.get(button, "LEFT")
+        ps = (
+            f"Add-Type -AssemblyName System.Windows.Forms; "
+            f"$p=New-Object System.Drawing.Point({x},{y}); "
+            f"[System.Windows.Forms.Cursor]::Position=$p; "
+            f"[System.Windows.Forms.SendKeys]::SendWait('{{{btn}}}')"
+        )
+        return _run(["powershell", "-NoProfile", "-Command", ps])
+
+    def list_windows(self):
+        ps = ("Get-Process | Where-Object {$_.MainWindowTitle -ne ''} | "
+              "Select-Object -ExpandProperty MainWindowTitle")
+        return _run(["powershell", "-NoProfile", "-Command", ps])
+
+    def focus_window(self, title):
+        ps = (f"$w=Get-Process | Where-Object {{$_.MainWindowTitle -like '*{title}*'}} | "
+              "Select-Object -First 1; "
+              "if($w){(New-Object -ComObject WScript.Shell).AppActivate($w.Id)}")
+        return _run(["powershell", "-NoProfile", "-Command", ps])
+
+
+class MacProvider(Provider):
+    name = "macos"
+
+    def available(self) -> tuple[bool, str]:
+        if not _have("osascript"):
+            return False, "osascript not found"
+        return True, "AppleScript ready (cliclick optional for clicks)"
+
+    def type_text(self, text):
+        safe = text.replace("\\", "\\\\").replace('"', '\\"')
+        return _run(["osascript", "-e", f'tell application "System Events" to keystroke "{safe}"'])
+
+    def press_key(self, keys):
+        safe = keys.replace("+", " ")  # ctrl+c -> ctrl c
+        return _run(["osascript", "-e",
+                     f'tell application "System Events" to key code (key down {safe})'])
+
+    def click_at(self, x, y, button="left"):
+        if _have("cliclick"):
+            return _run(["cliclick", f"c:{x},{y}"])
+        return _run(["osascript", "-e",
+                     f'tell application "System Events" to click at {{x:{x}, y:{y}}}'])
+
+    def list_windows(self):
+        return _run(["osascript", "-e",
+                     'tell application "System Events" to get name of every process whose visible is true'])
+
+    def focus_window(self, title):
+        return _run(["osascript", "-e",
+                     f'tell application "{title}" to activate'])
+
+
 def get_provider() -> Provider:
     """Pick the best input provider for this machine, right now."""
+    import platform
+
+    sys_os = platform.system().lower()
+    if sys_os == "windows":
+        return WindowsProvider()
+    if sys_os == "darwin":
+        return MacProvider()
+
     session = os.environ.get("XDG_SESSION_TYPE", "").lower()
     x11, wl = X11Provider(), WaylandProvider()
 
@@ -176,7 +265,8 @@ def get_provider() -> Provider:
         return NullProvider(
             f"Wayland session; ydotool: {w_why}; xdotool: {x_why}. "
             "Tip: log in with 'Ubuntu on Xorg' for full control, or set up "
-            "ydotoold with /dev/uinput access.")
+            "ydotoold with /dev/uinput access."
+        )
     # X11 (or unknown)
     if x_ok:
         return x11

@@ -57,7 +57,8 @@ def _mod(name: str) -> bool:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="buddy", description="DeskBuddy - Alexa for your PC")
     parser.add_argument("command", nargs="?", default="gui",
-                        choices=["gui", "setup", "doctor", "enroll", "listen", "voice"])
+                        choices=["gui", "setup", "doctor", "enroll", "listen",
+                                 "daemon", "voice"])
     parser.add_argument("voice_id", nargs="?", default=None,
                         help="with 'voice': set preferred voice id")
     parser.add_argument("--text", action="store_true", help="headless text loop")
@@ -108,6 +109,44 @@ def main(argv: list[str] | None = None) -> int:
             listen_for_wake(eng, on_detect=lambda: print("  ● wake word detected!"))
         except KeyboardInterrupt:
             pass
+        return 0
+
+    if args.command == "daemon":
+        # Always-on wake word: persistently listen in the background and launch
+        # the GUI on detection. Uses DeskBuddy's OWN MFCC+DTW engine (offline,
+        # free, no paid SDK) - not openWakeWord, which has no Linux build.
+        import os
+        from pathlib import Path
+        cfg = _Cfg.load()
+        pid = os.getpid()
+        pidfile = Path.home() / ".deskbuddy" / "buddy-daemon.pid"
+        try:
+            from deskbuddy.voice.wakeword import WakeWordEngine, listen_for_wake
+        except Exception as e:  # noqa: BLE001
+            print(f"[daemon] wake-word engine unavailable: {e}")
+            return 1
+        eng = WakeWordEngine(cfg.voice.wake_word)
+        if not eng.trained:
+            print(f"Wake word '{cfg.voice.wake_word}' not enrolled. Run: buddy enroll")
+            return 1
+        pidfile.parent.mkdir(parents=True, exist_ok=True)
+        pidfile.write_text(str(pid))
+        print(f"[daemon] always-on wake word active (pid {pid}). "
+              f"Say '{cfg.voice.wake_word}'. Stop with: buddy daemon --stop")
+        try:
+            listen_for_wake(
+                eng,
+                on_detect=lambda: os.system(
+                    f"{shutil.which('buddy') or 'buddy'} gui >/dev/null 2>&1 &") or
+                print("  ● wake word detected -> launching GUI"),
+            )
+        except KeyboardInterrupt:
+            pass
+        finally:
+            try:
+                pidfile.unlink()
+            except Exception:  # noqa: BLE001
+                pass
         return 0
 
     from deskbuddy.setup import run_wizard

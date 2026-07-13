@@ -14,6 +14,7 @@ from __future__ import annotations
 import queue
 import sys
 import time
+from typing import Callable
 
 SAMPLE_RATE = 16000
 
@@ -114,10 +115,111 @@ class KeyboardSTT:
             return ""
 
 
+class VADStreamingSTT:
+    """Streaming STT: WebRTC VAD detects speech, silence ends the turn.
+
+    Records a continuous mic stream, marks each 30ms frame as speech/silence
+    with Google's WebRTC VAD (free, ~tiny, no model), buffers speech frames,
+    and only hands the buffered chunk to faster-whisper once a silence gap
+    is detected. This gives natural 'speak, pause, it transcribes' behavior
+    without sending anything to a paid API.
+
+    An optional `on_level` callback receives the live RMS (0..1) each frame so
+    the GUI can draw a real waveform while you talk.
+    """
+
+    def __init__(self, model_name: str = "small.en", aggressiveness: int = 2):
+        from faster_whisper import WhisperModel
+        self.model = WhisperModel(model_name, device="cpu", compute_type="int8")
+        self.aggressiveness = aggressiveness
+        self.on_level: "Callable[[float], None] | None" = None  # GUI waveform hook
+
+    def _clean(self, text: str) -> str:
+        t = (text or "").strip().strip(".,!?\"' ").lower()
+        junk = {"", "you", "yeah", "yes", "no", "ok", "okay", "uh", "um",
+                "thank you", "thanks", "hello", "hi", "hey", "jarvis"}
+        if t in junk:
+            return ""
+        if len(t) < 2:
+            return ""
+        return text.strip()
+
+    def _vad(self):
+        try:
+            import webrtcvad
+            return webrtcvad.Vad(self.aggressiveness)
+        except Exception:  # noqa: BLE001
+            return None
+
+    def listen(self, seconds: float = 0.0, wake_word: str | None = None) -> str:
+        try:
+            import numpy as np
+            import sounddevice as sd
+        except Exception:  # noqa: BLE001
+            return ""
+        vad = self._vad()
+        try:
+            chunk = int(0.03 * SAMPLE_RATE)  # 30ms
+            frame_bytes = chunk * 2  # int16 mono
+            buf = []
+            speech_buf = []
+            in_speech = False
+            silent_for = 0.0
+            spoke_for = 0.0
+            max_seconds = 25.0
+            silence_end = 0.9  # seconds of silence => end of utterance
+            with sd.InputStream(samplerate=SAMPLE_RATE, channels=1,
+                                dtype="int16", blocksize=chunk) as stream:
+                start = time.time()
+                while time.time() - start < max_seconds:
+                    data, _ = stream.read(chunk)
+                    rms = float(np.sqrt(np.mean((data.astype(np.float32) / 32768) ** 2)))
+                    if self.on_level:
+                        try:
+                            self.on_level(rms)
+                        except Exception:  # noqa: BLE001
+                            pass
+                    buf.append(data.copy())
+                    # VAD needs raw int16 frames of exactly 30ms @16k
+                    raw = data.tobytes()
+                    if vad is not None and len(raw) == frame_bytes:
+                        is_speech = vad.is_speech(raw, SAMPLE_RATE)
+                    else:
+                        is_speech = rms > 0.012  # amplitude fallback if no VAD
+                    if is_speech:
+                        in_speech = True
+                        silent_for = 0.0
+                        spoke_for += len(data) / SAMPLE_RATE
+                        speech_buf.append(data.copy())
+                    elif in_speech:
+                        silent_for += len(data) / SAMPLE_RATE
+                        speech_buf.append(data.copy())
+                        if silent_for >= silence_end or spoke_for > max_seconds:
+                            break
+            if not speech_buf:
+                return ""
+            audio = np.concatenate(speech_buf).flatten().astype(np.float32) / 32768.0
+            segments, _ = self.model.transcribe(
+                audio,
+                language="en",
+                initial_prompt=_INITIAL_PROMPT,
+                condition_on_previous_text=False,
+                temperature=(0.0, 0.4, 0.8),
+            )
+            raw = " ".join(s.text for s in segments).strip()
+            clean = self._clean(raw)
+            if wake_word and clean.lower() == wake_word.lower():
+                return f"__WAKEONLY__{wake_word}"
+            return clean
+        except Exception as e:  # noqa: BLE001
+            print(f"[stt] {e}", file=sys.stderr)
+            return ""
+
+
 def make_stt(cfg):
     if cfg.voice.stt == "whisper":
         try:
-            return WhisperSTT(cfg.voice.whisper_model)
+            return VADStreamingSTT(cfg.voice.whisper_model)
         except Exception as e:  # noqa: BLE001
             print(f"[stt] whisper unavailable ({e}); falling back to keyboard.")
     return KeyboardSTT()

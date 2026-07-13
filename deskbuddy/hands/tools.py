@@ -39,9 +39,22 @@ def _focus_window_ok() -> bool:
 
 def _click_ok() -> bool:
     return _type_text_ok()
-
 def _screenshot_ok() -> bool:
-    return _have("grim") or _have("gnome-screenshot") or _have("scrot")
+    return _have("grim") or _have("gnome-screenshot") or _have("scrot") \
+        or _have("screencapture")  # macOS
+
+
+def _read_screen_ok() -> bool:
+    try:
+        import pytesseract  # noqa: F401
+    except Exception:
+        return False
+    # Need a screenshot backend AND the tesseract binary.
+    return _screenshot_ok() and (
+        _have("tesseract")
+        or _have("tesseract.exe")  # windows
+    )
+
 
 def _vision_ok() -> bool:
     if not _screenshot_ok():
@@ -61,6 +74,7 @@ _TOOL_CHECKS: dict[str, Callable[[], bool]] = {
     "click_at": _click_ok,
     "look_and_click": _click_ok,
     "screenshot": _screenshot_ok,
+    "read_screen": _read_screen_ok,
     "see_screen": _vision_ok,
 }
 
@@ -267,19 +281,45 @@ def list_dir(path: str = "~") -> dict[str, Any]:
 
 
 def screenshot(path: str = "~/deskbuddy-screen.png") -> dict[str, Any]:
-    """Capture the screen to a PNG (for the vision model to inspect later)."""
+    """Capture the screen to a PNG (for the vision model / OCR to inspect later)."""
     out = str(Path(path).expanduser())
     for tool, args in (
         ("grim", [out]),                       # wayland
         ("gnome-screenshot", ["-f", out]),
         ("scrot", [out]),                      # x11
+        ("screencapture", ["-x", out]),        # macOS
         ("import", ["-window", "root", out]),  # imagemagick x11
     ):
         if _have(tool):
             r = _run([tool, *args])
             if r.get("ok"):
                 return {"ok": True, "path": out, "via": tool}
-    return {"ok": False, "error": "no screenshot tool (install grim on Wayland)"}
+    return {"ok": False, "error": "no screenshot tool (install grim on Wayland, "
+                                  "or screencapture on macOS)"}
+
+
+def read_screen(lang: str = "eng") -> dict[str, Any]:
+    """Offline screen reading: screenshot then OCR the text with Tesseract.
+
+    Free and local (no API). Great for 'what error is on screen', reading a
+    dialog, or grabbing a code from an image. Requires the `tesseract` binary
+    (apt install tesseract-ocr / brew install tesseract / scoop install tesseract)
+    and the `pytesseract` Python package (pip install 'deskbuddy[ocr]').
+    """
+    shot = screenshot("~/.deskbuddy/last-screen.png")
+    if not shot.get("ok"):
+        return shot
+    try:
+        import pytesseract
+        from PIL import Image
+        img = Image.open(shot["path"])
+        text = pytesseract.image_to_string(img, lang=lang).strip()
+        return {"ok": True, "text": text, "chars": len(text),
+                "screenshot": shot["path"]}
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "error": f"OCR failed: {e}",
+                "screenshot": shot.get("path"),
+                "hint": "install tesseract + pip install 'deskbuddy[ocr]'"}
 
 
 def use_skill(name: str) -> dict[str, Any]:
@@ -472,6 +512,16 @@ REGISTRY: dict[str, tuple[Callable[..., dict], dict]] = {
                            "read text). Use before clicking to decide what to do.",
             "parameters": {"type": "object", "properties": {
                 "question": {"type": "string"}}},
+        }}),
+    "read_screen": (read_screen, {
+        "type": "function",
+        "function": {
+            "name": "read_screen",
+            "description": "Read the TEXT on screen, offline, via OCR (Tesseract). "
+                           "Free and local. Use to quote an error, copy a code "
+                           "from an image, or answer 'what does it say'.",
+            "parameters": {"type": "object", "properties": {
+                "lang": {"type": "string", "description": "OCR language, e.g. eng"}}},
         }}),
     "use_skill": (use_skill, {
         "type": "function",

@@ -85,13 +85,21 @@ features + DTW template matching** (numpy only):
 - `buddy listen` / `buddy --voice` — streams the mic, matches against your
   templates, fires when it hears you. Offline, free, and it's *our code*.
 
-## The Wayland lesson (baked into the design)
+## Runs on Linux, Windows, and macOS
 
-Wayland deliberately blocks apps from injecting input into other windows. So
-`hands/providers.py` picks the best method at runtime — `X11Provider`
-(xdotool/wmctrl), `WaylandProvider` (ydotool when `/dev/uinput` works), or a
-`NullProvider` that explains the limitation and suggests logging into an
-"Ubuntu on Xorg" session for full hands-off control.
+DeskBuddy is cross-platform. The installer has one-liners for Linux/macOS
+(`curl | bash`) and Windows PowerShell (`iex (irm ...)`), and the input-control
+layer picks the right backend per OS at runtime:
+
+- **Linux (X11)**: `xdotool` / `wmctrl` for full hands-off control.
+- **Linux (Wayland)**: `ydotool` (+ `/dev/uinput`) for cross-window input.
+  Wayland blocks apps from injecting input, so if `ydotool` isn't set up,
+  DeskBuddy explains the limit and suggests an "Ubuntu on Xorg" session.
+- **Windows**: PowerShell `SendKeys` for typing/keys, `nircmd` for clicks.
+- **macOS**: AppleScript `System Events` for typing/keys, `cliclick` for clicks.
+
+One interface (`hands/providers.py`), four backends. The brain (native or
+Hermes) and the voice/wake-word layers are identical on every OS.
 
 ## Voice & hands-off (optional installs)
 
@@ -104,7 +112,11 @@ sudo apt install xdotool wmctrl scrot espeak-ng   # X11 control + TTS
 ## Status
 
 Working now: project scaffold, pluggable brain (native + hermes), 8 PC-control
-tools, STT/TTS with graceful fallbacks, terminal wizard, tkinter GUI, installer.
+tools with cross-platform providers (Linux X11/Wayland, Windows, macOS),
+STT/TTS with graceful fallbacks, terminal wizard, tkinter GUI, installer,
+always-on wake word via our own MFCC+DTW engine (offline, free, no paid SDK),
+streaming STT with WebRTC VAD silence detection, screen-vision (OCR + vision),
+live GUI waveform, and packaging (PyInstaller binary + .deb).
 
-Next: always-on wake-word detection ("buddy") via openWakeWord, streaming
-STT with silence detection, screen-vision tool, richer GUI (waveform), packaging.
+Next: deeper native-brain tool use, richer GUI (Electron/Tauri), and a hosted
+demo.

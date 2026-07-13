@@ -6,19 +6,20 @@ import { SectionHeading } from "@/components/shared/section-heading";
 
 const WORKING = [
   "Pluggable brain (native + hermes)",
-  "8 PC-control tools (apps, shell, keyboard, mouse, files, screen)",
-  "STT/TTS with graceful fallbacks",
-  "Terminal setup wizard",
-  "tkinter GUI",
-  "Cross-platform installer (curl + PowerShell)",
+  "8 PC-control tools with cross-platform providers (Linux X11/Wayland, Windows, macOS)",
+  "Always-on wake word via our own MFCC+DTW engine (offline, free, no paid SDK)",
+  "Streaming STT with WebRTC VAD silence detection",
+  "Screen-vision: offline OCR (Tesseract) + vision model",
+  "Live GUI waveform",
+  "Terminal wizard, tkinter GUI, cross-platform installer",
+  "Packaging: PyInstaller binary + .deb",
 ];
 
 const NEXT = [
-  "Always-on wake word via openWakeWord",
-  "Streaming STT with silence detection",
-  "Screen-vision tool",
-  "Richer GUI with waveform",
-  "Packaging and distribution",
+  "Deeper native-brain tool use",
+  "Richer GUI (Electron/Tauri)",
+  "Hosted demo",
+  "More wake-word models",
 ];
 
 function List({ items, done }: { items: string[]; done: boolean }) {

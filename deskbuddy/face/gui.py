@@ -73,6 +73,37 @@ class Orb:
         self.c.after(40, self._tick)
 
 
+class Waveform:
+    """A live mic-level bar strip driven by RMS (0..1) from the STT loop."""
+
+    def __init__(self, canvas, width=320, height=48, bars=32):
+        self.c = canvas
+        self.w = width
+        self.h = height
+        self.n = bars
+        self.levels = [0.0] * bars
+        self.bars = [self.c.create_rectangle(0, 0, 0, 0, fill=ACCENT,
+                                             outline="") for _ in range(bars)]
+        self._tick()
+
+    def push(self, level: float) -> None:
+        # shift + append; smooth a little
+        self.levels.pop(0)
+        self.levels.append(min(1.0, max(0.0, level * 3.0)))
+
+    def _tick(self):
+        bw = self.w / self.n
+        mid = self.h / 2
+        for i, item in enumerate(self.bars):
+            lvl = self.levels[i]
+            bh = max(2, lvl * (self.h - 6))
+            x0 = i * bw + 1
+            self.c.coords(item, x0, mid - bh / 2, x0 + bw - 2, mid + bh / 2)
+            color = ACCENT if lvl < 0.04 else "#3fb950"
+            self.c.itemconfig(item, fill=color)
+        self.c.after(40, self._tick)
+
+
 class BuddyGUI:
     def __init__(self, cfg: Config):
         self.cfg = cfg
@@ -108,6 +139,15 @@ class BuddyGUI:
                             fg=MUTED, bg=CARD,
                             font=(FONT, 11))
         self.line.pack(pady=(0, 18))
+
+        # ---- live mic waveform (driven by the STT loop's RMS) ----
+        wave_card = tk.Frame(self.root, bg=CARD, highlightbackground=LINE,
+                             highlightthickness=1)
+        wave_card.pack(fill="x", padx=22, pady=(0, 10))
+        wcanvas = tk.Canvas(wave_card, width=320, height=48, bg=CARD,
+                            highlightthickness=0)
+        wcanvas.pack(pady=10)
+        self.wave = Waveform(wcanvas, width=320, height=48)
 
         # ---- transcript (brief, fades - NOT a permanent textarea) ----
         self.transcript = scrolledtext.ScrolledText(
@@ -232,6 +272,9 @@ class BuddyGUI:
         # DeskBuddy sits quiet until you say the wake word, then takes one
         # command - so it never burns turns on ambient chatter or its own voice.
         try:
+            # Drive the live waveform from the STT mic level callback.
+            if hasattr(self.session.stt, "on_level"):
+                self.session.stt.on_level = lambda lvl: self.wave.push(lvl)
             self.session.loop()
         except Exception as e:  # noqa: BLE001
             self.root.after(0, lambda: self._append(

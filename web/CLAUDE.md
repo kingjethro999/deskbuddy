@@ -29,13 +29,20 @@ Key facts Claude Code must get right in all copy:
   matching, numpy only. No Porcupine, no paid SDK, fully offline and free.
   Commands: `buddy enroll` (teach it your wake word), `buddy listen` /
   `buddy --voice` (streaming mic detection).
-- The **Wayland lesson**: Wayland blocks apps from injecting input into other
-  windows. `hands/providers.py` picks the best method at runtime —
-  `X11Provider` (xdotool/wmctrl), `WaylandProvider` (ydotool, needs
-  `/dev/uinput`), or `NullProvider` (explains the limitation, suggests an
+- **Cross-platform by design.** DeskBuddy runs on Linux, Windows, and macOS.
+  The installer has one-liners for each (curl for Linux/macOS, PowerShell for
+  Windows). The input-control layer (`hands/providers.py`) detects the OS and
+  picks a backend at runtime: `X11Provider` (xdotool/wmctrl), `WaylandProvider`
+  (ydotool, needs `/dev/uinput`), `WindowsProvider` (PowerShell SendKeys,
+  nircmd for clicks), `MacProvider` (AppleScript System Events, cliclick for
+  clicks). One interface, four backends. The brain and voice layers are
+  identical on every OS.
+- The **Wayland lesson** (Linux): Wayland blocks apps from injecting input into
+  other windows. `hands/providers.py` picks the best method at runtime. On
+  Linux this means `X11Provider` (xdotool/wmctrl), `WaylandProvider` (ydotool,
+  needs `/dev/uinput`), or `NullProvider` (explains the limitation, suggests an
   "Ubuntu on Xorg" session for full control). This is a trust-building detail,
-  not a footnote — technical users notice when a project has actually reckoned
-  with a real platform limitation.
+  not a footnote. On Windows/macOS the equivalent providers use native APIs.
 - Install is one line, cross-platform:
   - Linux/macOS/WSL2: `curl -fsSL https://raw.githubusercontent.com/kingjethro999/deskbuddy/main/scripts/install.sh | bash`
   - Windows PowerShell: `iex (irm https://raw.githubusercontent.com/kingjethro999/deskbuddy/main/scripts/install.ps1)`
@@ -45,10 +52,10 @@ Key facts Claude Code must get right in all copy:
   that runs their PC. Every section should work on both levels — technical
   depth available, never required to understand the pitch.
 - Status: project scaffold, pluggable brain (native + hermes), 8 PC-control
-  tools, STT/TTS with graceful fallbacks, terminal wizard, tkinter GUI,
-  installer — all working now. Next: always-on wake word via openWakeWord,
-  streaming STT with silence detection, screen-vision tool, richer GUI
-  (waveform), packaging.
+  tools with cross-platform providers, streaming STT with silence detection,
+  screen-vision (offline OCR + vision), live GUI waveform, packaging
+  (PyInstaller + .deb). Next: deeper native-brain tool use, richer GUI
+  (Electron/Tauri), hosted demo.
 
 Never invent features, pricing, or stats not in this brief or the repo README.
 
