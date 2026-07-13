@@ -9,17 +9,32 @@ listens to you, and operates your computer hands-off.
 
 ## Install (one line)
 
+DeskBuddy is a **hybrid**: a voice/input skin over the real Hermes agent runtime.
+The installer provisions both DeskBuddy and — if missing — the Hermes brain
+(it runs Hermes's own installer, then `hermes setup`).
+
+**Linux, macOS, WSL2:**
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/kingjethro999/deskbuddy/main/scripts/install.sh | bash
+```
+
+**Windows (PowerShell):**
+
+```powershell
+iex (irm https://raw.githubusercontent.com/kingjethro999/deskbuddy/main/scripts/install.ps1)
 ```
 
 Then:
 
 ```bash
-buddy setup      # choose standalone (Ollama/Nous/OpenAI...) or link to Hermes
+buddy setup      # configure voice/input (and link to Hermes if you chose it)
 buddy enroll     # teach it your wake word
 buddy            # launch the GUI
 ```
+
+> If Hermes wasn't already installed, the installer pulls it in automatically.
+> After install, run `hermes setup` once to configure the brain (API key, provider).
 
 
 ## The idea
