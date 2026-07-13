@@ -61,6 +61,14 @@ else
   fi
 fi
 
+# 2b. Strip the marketing site so desktop-app installs stay lean.
+# `web/` is the Next.js site (separate repo concern) and not part of the
+# pip package. Skipping it avoids pulling node_modules / heavy assets.
+if [ -d "$SRC/web" ]; then
+  say "Removing marketing site (web/) from install (not needed for the app)..."
+  rm -rf "$SRC/web"
+fi
+
 # 3. DeskBuddy venv + install (idempotent: reuse existing venv)
 say "Preparing DeskBuddy virtual environment..."
 if [ ! -f "$HOME/.deskbuddy/venv/bin/python" ]; then

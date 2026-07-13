@@ -1,0 +1,74 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg:            #0B0E0D;
+  --color-surface:       #121614;
+  --color-surface-raised:#181D1B;
+  --color-border:        #232A27;
+
+  --color-text-primary:  #EDEFEE;
+  --color-text-secondary:#9CA8A3;
+  --color-text-muted:    #6B7570;
+
+  --color-accent:        #4AB3D4;
+  --color-accent-warm:   #E8521A;
+  --color-accent-dim:    #1B5C52;
+
+  --color-success:       #4ADE80;
+  --color-code-bg:       #0D1110;
+
+  --radius-sm: 0.375rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 1.25rem;
+
+  --font-display: var(--font-bricolage);
+  --font-body: var(--font-geist);
+  --font-mono: var(--font-geist-mono);
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-text-secondary);
+  font-family: var(--font-body), system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3 {
+  font-family: var(--font-display), system-ui, sans-serif;
+  color: var(--color-text-primary);
+}
+
+/* Lenis */
+html.lenis, html.lenis body { height: auto; }
+.lenis.lenis-smooth { scroll-behavior: auto !important; }
+.lenis.lenis-stopped { overflow: hidden; }
+
+::selection {
+  background: var(--color-accent-dim);
+  color: var(--color-text-primary);
+}
+
+@keyframes accordion-down {
+  from { height: 0; opacity: 0; }
+  to { height: var(--radix-accordion-content-height); opacity: 1; }
+}
+@keyframes accordion-up {
+  from { height: var(--radix-accordion-content-height); opacity: 1; }
+  to { height: 0; opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}
