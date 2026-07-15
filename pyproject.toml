@@ -29,6 +29,12 @@ voice = [
 ocr = [
     "pytesseract>=0.3.10",
 ]
+# Premium WebView face (HTML/CSS/JS bubble). Needs a WebView backend:
+#   Linux: sudo apt install libwebkit2gtk-4.1-dev   (already present on most)
+#   macOS: built-in  |  Windows: built-in
+gui = [
+    "pywebview>=5.0",
+]
 # Build a standalone binary (PyInstaller) for packaging/distribution.
 packaging = [
     "pyinstaller>=6.0",
