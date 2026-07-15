@@ -25,6 +25,7 @@ def _doctor() -> int:
         "python-openai": _mod("openai"),
         "sounddevice (mic)": _mod("sounddevice"),
         "faster-whisper (STT)": _mod("faster_whisper"),
+        "webrtcvad (silence detection)": _mod("webrtcvad"),
         "arecord": bool(shutil.which("arecord")),
         "aplay": bool(shutil.which("aplay")),
         "tts: piper/espeak-ng/edge-tts": any(shutil.which(c) for c in
@@ -33,6 +34,8 @@ def _doctor() -> int:
             ("ydotool", "wtype", "xdotool")),
         "screenshot: grim/scrot/gnome-screenshot": any(shutil.which(c) for c in
             ("grim", "scrot", "gnome-screenshot")),
+        "tesseract (OCR)": bool(shutil.which("tesseract")),
+        "pytesseract (OCR lib)": _mod("pytesseract"),
     }
     for name, ok in checks.items():
         print(f"  [{'x' if ok else ' '}] {name}")
