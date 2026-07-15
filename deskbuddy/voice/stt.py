@@ -108,6 +108,9 @@ class WhisperSTT:
 
 class KeyboardSTT:
     """Fallback 'ears': read a typed line. Keeps the loop testable with no mic."""
+    def __init__(self):
+        self.on_level: "Callable[[float], None] | None" = None  # GUI waveform hook
+
     def listen(self, seconds: float = 0.0) -> str:
         try:
             return input("you> ").strip()
