@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>DeskBuddy</title>
+<style>
+:root{
+  --bg:#0B0E0D; --surface:#121614; --raised:#181D1B; --border:#232A27;
+  --teal:#4AB3D4; --teal-dim:#1B5C52; --warm:#E8521A;
+  --green:#4ADE80; --you:#7EE787; --buddy:#9CD7E8; --muted:#9CA8A3; --txt:#EDEFEE;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  width:380px; background:var(--bg); color:var(--txt);
+  font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;
+  border-radius:20px; overflow:hidden; user-select:none;
+  -webkit-app-region:drag;
+}
+#bar{display:flex;justify-content:space-between;align-items:center;
+  padding:10px 12px;background:var(--surface);border-bottom:1px solid var(--border);
+  -webkit-app-region:drag}
+#status{display:flex;align-items:center;gap:8px;color:var(--muted);font-weight:700}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--muted);
+  box-shadow:0 0 10px var(--muted);transition:.3s}
+#ctrls button{background:none;border:0;color:var(--muted);font-size:16px;cursor:pointer;
+  padding:0 6px;-webkit-app-region:no-drag}
+#ctrls button:hover{color:var(--txt)}
+#orbWrap{display:flex;flex-direction:column;align-items:center;
+  padding:18px 0 6px;background:var(--surface);border-bottom:1px solid var(--border)}
+#orb{width:200px;height:200px}
+#hint{color:var(--muted);margin-top:4px}
+#hint b{color:var(--teal)}
+#wave{display:block;width:320px;height:40px;margin:10px auto 0;background:var(--surface)}
+#chat{flex:1;overflow-y:auto;padding:10px 12px;display:flex;flex-direction:column;gap:8px;max-height:300px}
+.bubble{max-width:82%;padding:8px 12px;border-radius:14px;word-wrap:break-word;animation:pop .25s cubic-bezier(.2,.8,.2,1)}
+.bubble.you{align-self:flex-end;background:linear-gradient(135deg,var(--teal),var(--teal-dim));
+  color:#04141a;border-bottom-right-radius:4px}
+.bubble.buddy{align-self:flex-start;background:var(--raised);color:var(--buddy);
+  border:1px solid var(--border);border-bottom-left-radius:4px}
+.bubble .who{display:block;font-size:10px;opacity:.6;margin-bottom:2px}
+@keyframes pop{from{opacity:0;transform:translateY(8px) scale(.96)}to{opacity:1;transform:none}}
+#inputWrap{padding:8px 12px 14px;background:var(--bg)}
+#inputWrap.hidden{display:none}
+#input{width:100%;padding:10px 12px;border-radius:12px;border:1px solid var(--border);
+  background:var(--raised);color:var(--txt);outline:none;font:inherit}
+#input:focus{border-color:var(--teal)}
+@media (prefers-reduced-motion: reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+  <div id="bar">
+    <span id="status"><i class="dot"></i><b id="statusText">idle</b></span>
+    <span id="ctrls">
+      <button id="min" title="minimize">–</button>
+      <button id="close" title="close">×</button>
+    </span>
+  </div>
+  <div id="orbWrap">
+    <canvas id="orb" width="200" height="200"></canvas>
+    <p id="hint">Say <b id="wake">jarvis</b></p>
+  </div>
+  <canvas id="wave" width="320" height="40"></canvas>
+  <div id="chat"></div>
+  <div id="inputWrap" class="hidden">
+    <input id="input" type="text" placeholder="type your answer…" autocomplete="off" />
+  </div>
+
+<script>
+const COLORS={ready:"#9CA8A3",listening:"#4ADE80",thinking:"#E8C547",speaking:"#4AB3D4",waiting:"#9CA8A3"};
+let state="ready",level=0;
+const chat=document.getElementById("chat"),hint=document.getElementById("hint"),wake=document.getElementById("wake");
+function setStatus(s){state=s;const c=COLORS[s]||COLORS.ready;
+  document.querySelector(".dot").style.background=c;document.querySelector(".dot").style.boxShadow="0 0 10px "+c;
+  document.getElementById("statusText").textContent=({ready:"idle",waiting:"idle",listening:"listening",thinking:"thinking",speaking:"speaking"})[s]||s;
+  if(s==="listening")hint.innerHTML="Listening…";else if(s==="thinking")hint.innerHTML="Thinking…";
+  else if(s==="speaking")hint.innerHTML="Speaking…";else hint.innerHTML='Say <b>'+wake.textContent+'</b>';}
+const oc=document.getElementById("orb"),ox=oc.getContext("2d");let t=0;
+function amp(){return{ready:.08,waiting:.14,listening:.95,thinking:.5,speaking:.8}[state]||.2;}
+function drawOrb(){const w=oc.width,cx=w/2,cy=w/2,col=COLORS[state]||COLORS.ready;ox.clearRect(0,0,w,w);
+  for(let i=0;i<3;i++){const ph=t*(1.1+.3*i)+i*1.2;const r=w*(.26+.16*i)+amp()*w*.2*(.5+.5*Math.sin(ph));
+    ox.beginPath();ox.arc(cx,cy,r,0,7);ox.lineWidth=2;ox.strokeStyle=col;ox.globalAlpha=Math.max(.12,.5-i*.14);ox.stroke();}
+  const rc=w*(.20+.05*Math.sin(t*1.5));const g=ox.createRadialGradient(cx,cy,2,cx,cy,rc);g.addColorStop(0,col);g.addColorStop(1,"#1B5C52");
+  ox.beginPath();ox.arc(cx,cy,rc,0,7);ox.fillStyle=g;ox.fill();ox.globalAlpha=1;
+  t+=({listening:.32,thinking:.18,speaking:.28}[state]||.06);requestAnimationFrame(drawOrb);}
+drawOrb();
+const wc=document.getElementById("wave"),wx=wc.getContext("2d");const N=32,levels=new Array(N).fill(0);
+function drawWave(){wx.clearRect(0,0,wc.width,wc.height);const bw=wc.width/N,mid=wc.height/2;
+  for(let i=0;i<N;i++){const l=levels[i];const bh=Math.max(2,l*(wc.height-6));wx.fillStyle=l>.04?"#4ADE80":"#4AB3D4";wx.fillRect(i*bw+1,mid-bh/2,bw-2,bh);}
+  requestAnimationFrame(drawWave);}
+drawWave();
+function pushLevel(v){levels.push(Math.min(1,v*3));levels.shift();}
+function escapeHtml(s){return s.replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));}
+function append(who,text){const b=document.createElement("div");b.className="bubble "+(who==="You"?"you":"buddy");
+  b.innerHTML='<span class="who">'+(who==="You"?"You":"Buddy")+'</span>'+escapeHtml(text);chat.appendChild(b);chat.scrollTop=chat.scrollHeight;}
+const inputWrap=document.getElementById("inputWrap"),input=document.getElementById("input");
+function showInput(p){if(p)hint.innerHTML="<b style='color:#4AB3D4'>"+escapeHtml(p)+"</b>";inputWrap.classList.remove("hidden");input.focus();}
+function hideInput(){input.value="";inputWrap.classList.add("hidden");hint.innerHTML='Say <b>'+wake.textContent+'</b>';}
+input.addEventListener("keydown",e=>{if(e.key==="Enter"&&input.value.trim()){const v=input.value.trim();hideInput();
+  if(window.pywebview&&window.pywebview.api)window.pywebview.api.user_text(v);}});
+document.getElementById("min").onclick=()=>window.pywebview&&window.pywebview.api.minimize();
+document.getElementById("close").onclick=()=>window.pywebview&&window.pywebview.api.close();
+window.buddyEvent=function(kind,text){if(kind==="status")setStatus(text);
+  else if(kind==="level")pushLevel(parseFloat(text)||0);
+  else if(kind==="prompt")showInput(text);
+  else append(kind==="you"?"You":"DeskBuddy",text);};
+// tell Python we're ready (buddyEvent is now defined)
+(function signalReady(){
+  try{
+    if(window.pywebview&&window.pywebview.api)window.pywebview.api.dom_ready();
+    else window.addEventListener("pywebviewready",()=>window.pywebview.api.dom_ready());
+  }catch(err){console.error("dom_ready failed:",err);}
+})();
+</script>
+</body>
+</html>
