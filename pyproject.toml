@@ -23,6 +23,7 @@ dependencies = [
 voice = [
     "faster-whisper>=1.0",   # local speech-to-text
     "webrtcvad>=2.0.10",      # Google WebRTC VAD: free, tiny, silence detection
+    "setuptools<81",          # webrtcvad imports pkg_resources, removed in setuptools>=81
 ]
 # Offline screen OCR (needs the `tesseract` apt/scoop/brew binary too).
 ocr = [
