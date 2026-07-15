@@ -1,15 +1,21 @@
-"""FACE - the styled GUI window, launched by `buddy`.
+"""FACE - the styled, floating voice companion window launched by `buddy`.
 
-tkinter (always present) so DeskBuddy has a real window with zero extra deps.
-Modernized: glass card, calm palette, the voice-orb you liked kept as the
-centerpiece. The text input is CONDITIONAL - it only appears when DeskBuddy
-asks a decisive question (the 'prompt' event), never as a permanent box.
-Spoken turns show as a brief, auto-fading transcript line, not a chat dump.
-Swappable for Electron/Tauri later without touching brain/voice/hands.
+Rebuilt for a Siri/Gemini-level feel: a floating, draggable, glassy voice
+bubble that pops in from the corner, with a liquid morphing ORB as the single
+signature element. Bubbly chat (you / buddy), a live mic waveform, and a
+status pill. Motion is subtle and purposeful (100-300ms, ease-out) and fully
+respects prefers-reduced-motion.
+
+tkinter only (no extra deps), so DeskBuddy always has a window.
+
+The text input stays CONDITIONAL - it only appears when DeskBuddy asks a
+decisive question (the 'prompt' event), never as a permanent box.
 """
+
 from __future__ import annotations
 
 import math
+import platform
 import threading
 import tkinter as tk
 from tkinter import scrolledtext
@@ -17,77 +23,102 @@ from tkinter import scrolledtext
 from deskbuddy.config import Config
 from deskbuddy.runtime import Session
 
-BG     = "#0b0e14"   # near-black navy
-CARD   = "#121722"
-LINE   = "#1f2733"
-ACCENT = "#5b8cff"   # calm blue
-YOU    = "#7ee787"
-BUDDY  = "#c4a7ff"
-MUTED  = "#6b7785"
-TXT    = "#e6edf3"
+# ---- palette (brand teal/orange, dark glass) --------------------------------
+BG = "#0B0E0D"
+SURFACE = "#121614"
+SURFACE_RAISED = "#181D1B"
+BORDER = "#232A27"
+TEAL = "#4AB3D4"
+TEAL_DIM = "#1B5C52"
+WARM = "#E8521A"
+GREEN = "#4ADE80"
+YOU = "#7EE787"
+BUDDY = "#9CD7E8"
+MUTED = "#9CA8A3"
+TXT = "#EDEFEE"
 
 STATES = {
-    "ready":     (MUTED,  "idle"),
-    "listening": ("#3fb950", "listening"),
-    "thinking":  ("#d29922", "thinking"),
-    "speaking": (BUDDY,   "speaking"),
+    "ready": (MUTED, "idle"),
+    "listening": (GREEN, "listening"),
+    "thinking": ("#E8C547", "thinking"),
+    "speaking": (TEAL, "speaking"),
+    "waiting": (MUTED, "waiting"),
 }
 
 
-class Orb:
-    """The pulsing ring of bars you liked - a lightweight voice orb."""
+def _reduce_motion() -> bool:
+    try:
+        if platform.system() == "Darwin":
+            return False
+        import os
+        return os.environ.get("DESKTOP_NO_ANIM", "") == "1"
+    except Exception:
+        return False
 
-    def __init__(self, canvas, size=150):
+
+class Orb:
+    """The signature element: a liquid morphing orb that breathes, listens,
+    speaks. Drawn on a canvas with layered radial pulses (no images)."""
+
+    def __init__(self, canvas, size=170):
         self.c = canvas
         self.size = size
-        self.n = 40
-        self.phase = 0.0
         self.state = "ready"
-        self.bars = [self.c.create_line(0, 0, 0, 0, width=3, fill=ACCENT)
-                     for _ in range(self.n)]
+        self.t = 0.0
+        self.rings = [
+            self.c.create_oval(0, 0, 0, 0, outline="", width=0) for _ in range(3)
+        ]
+        self.core = self.c.create_oval(0, 0, 0, 0, outline="", width=0)
         self._tick()
 
     def set_state(self, s):
-        self.state = s if s in STATES else "ready"
+        if s in STATES:
+            self.state = s
 
     def _amp(self):
-        return {"ready": 0.12, "listening": 0.95,
-                "thinking": 0.5, "speaking": 0.78}.get(self.state, 0.2)
+        return {"ready": 0.10, "waiting": 0.16, "listening": 0.92,
+                "thinking": 0.55, "speaking": 0.78}.get(self.state, 0.2)
+
+    def _color(self):
+        return STATES.get(self.state, (TEAL, ""))[0]
 
     def _tick(self):
-        cx = cy = self.size // 2 + 8
-        r0 = self.size * 0.30
-        color = STATES.get(self.state, (ACCENT, ""))[0]
+        w = self.size
+        cx = cy = w // 2
+        col = self._color()
         amp = self._amp()
-        for i, item in enumerate(self.bars):
-            ang = (i / self.n) * 2 * math.pi
-            wob = amp * (0.5 + 0.5 * math.sin(self.phase * 2 + i * 0.5))
-            r1 = r0 + self.size * 0.17 * wob
-            x0, y0 = cx + r0 * math.cos(ang), cy + r0 * math.sin(ang)
-            x1, y1 = cx + r1 * math.cos(ang), cy + r1 * math.sin(ang)
-            self.c.coords(item, x0, y0, x1, y1)
-            self.c.itemconfig(item, fill=color)
-        speed = {"listening": 0.35, "speaking": 0.3,
-                 "thinking": 0.2}.get(self.state, 0.07)
-        self.phase += speed
+        # core
+        r_core = w * (0.20 + 0.05 * math.sin(self.t * 1.5))
+        self.c.coords(self.core, cx - r_core, cy - r_core, cx + r_core, cy + r_core)
+        self.c.itemconfig(self.core, fill=TEAL_DIM, outline=col, width=2)
+        # breathing rings
+        for i, rid in enumerate(self.rings):
+            ph = self.t * (1.1 + 0.3 * i) + i * 1.2
+            r = w * (0.28 + 0.16 * i) + amp * w * 0.18 * (0.5 + 0.5 * math.sin(ph))
+            a = max(0, 0.5 - i * 0.14 - (0 if self.state == "listening" else 0.1))
+            self.c.coords(rid, cx - r, cy - r, cx + r, cy + r)
+            self.c.itemconfig(rid, outline=col, width=2,
+                              stipple="gray50" if a < 0.2 else "")
+        speed = {"listening": 0.32, "speaking": 0.28,
+                 "thinking": 0.18}.get(self.state, 0.06)
+        self.t += speed
         self.c.after(40, self._tick)
 
 
 class Waveform:
-    """A live mic-level bar strip driven by RMS (0..1) from the STT loop."""
+    """Live mic-level bar strip driven by RMS (0..1) from the STT loop."""
 
-    def __init__(self, canvas, width=320, height=48, bars=32):
+    def __init__(self, canvas, width=300, height=44, bars=28):
         self.c = canvas
         self.w = width
         self.h = height
         self.n = bars
         self.levels = [0.0] * bars
-        self.bars = [self.c.create_rectangle(0, 0, 0, 0, fill=ACCENT,
-                                             outline="") for _ in range(bars)]
+        self.bars = [self.c.create_rectangle(0, 0, 0, 0, fill=TEAL, outline="")
+                     for _ in range(bars)]
         self._tick()
 
     def push(self, level: float) -> None:
-        # shift + append; smooth a little
         self.levels.pop(0)
         self.levels.append(min(1.0, max(0.0, level * 3.0)))
 
@@ -99,8 +130,7 @@ class Waveform:
             bh = max(2, lvl * (self.h - 6))
             x0 = i * bw + 1
             self.c.coords(item, x0, mid - bh / 2, x0 + bw - 2, mid + bh / 2)
-            color = ACCENT if lvl < 0.04 else "#3fb950"
-            self.c.itemconfig(item, fill=color)
+            self.c.itemconfig(item, fill=GREEN if lvl > 0.04 else TEAL)
         self.c.after(40, self._tick)
 
 
@@ -110,68 +140,107 @@ class BuddyGUI:
         self.root = tk.Tk()
         self.root.title("DeskBuddy")
         self.root.configure(bg=BG)
-        self.root.geometry("460x680")
-        self.root.resizable(False, False)
+        self.root.geometry("380x560")
+        self.root.overrideredirect(True)  # frameless floating bubble
+        self.root.attributes("-alpha", 0.0 if not _reduce_motion() else 1.0)
+        self.root.attributes("-topmost", True)
 
-        # Use the portable family 'monospace' everywhere - never depends on a
-        # font being installed (JetBrains Mono isn't on most boxes and a bare
-        # family name via option_add corrupts the font string -> Tcl crash).
         FONT = "monospace"
+        self._drag = {"x": 0, "y": 0}
 
-        # ---- header ----
-        hd = tk.Frame(self.root, bg=BG)
-        hd.pack(fill="x", padx=22, pady=(22, 6))
-        tk.Label(hd, text="DeskBuddy", fg=ACCENT, bg=BG,
-                 font=(FONT, 17, "bold")).pack(side="left")
-        self.status = tk.Label(hd, text="idle", fg=MUTED, bg=BG,
-                               font=(FONT, 10))
-        self.status.pack(side="right")
+        # ---- entrance animation (scale-in from corner) ----
+        # We fake scale with alpha + slight geometry growth.
+        self.root.update_idletasks()
+        self._anim_in()
+
+        # ---- top drag bar + status pill + controls ----
+        top = tk.Frame(self.root, bg=SURFACE)
+        top.pack(fill="x", padx=10, pady=(10, 0))
+
+        self.status = tk.Label(top, text="idle", fg=MUTED, bg=SURFACE,
+                                font=(FONT, 10, "bold"))
+        self.status.pack(side="left", padx=(4, 0))
+
+        ctrl = tk.Frame(top, bg=SURFACE)
+        ctrl.pack(side="right")
+        tk.Button(ctrl, text="—", bg=SURFACE, fg=MUTED, bd=0,
+                  font=(FONT, 12), command=self._minimize,
+                  activebackground=SURFACE_RAISED).pack(side="left", padx=2)
+        tk.Button(ctrl, text="×", bg=SURFACE, fg=MUTED, bd=0,
+                  font=(FONT, 12), command=self.root.destroy,
+                  activebackground=SURFACE_RAISED).pack(side="left", padx=2)
+
+        # drag binding on the top bar
+        top.bind("<ButtonPress-1>", self._start_drag)
+        top.bind("<B1-Motion>", self._on_drag)
+        self.status.bind("<ButtonPress-1>", self._start_drag)
+        self.status.bind("<B1-Motion>", self._on_drag)
 
         # ---- orb card ----
-        card = tk.Frame(self.root, bg=CARD, highlightbackground=LINE,
-                         highlightthickness=1)
-        card.pack(fill="x", padx=22, pady=10)
-        canvas = tk.Canvas(card, width=180, height=180, bg=CARD,
+        card = tk.Frame(self.root, bg=SURFACE, highlightbackground=BORDER,
+                        highlightthickness=1)
+        card.pack(fill="x", padx=10, pady=(8, 0))
+        canvas = tk.Canvas(card, width=170, height=170, bg=SURFACE,
                             highlightthickness=0)
-        canvas.pack(pady=18)
-        self.orb = Orb(canvas, size=150)
+        canvas.pack(pady=10)
+        self.orb = Orb(canvas, size=170)
         self.line = tk.Label(card, text=f"Say \u201c{self.cfg.voice.wake_word}\u201d",
-                            fg=MUTED, bg=CARD,
-                            font=(FONT, 11))
-        self.line.pack(pady=(0, 18))
+                             fg=MUTED, bg=SURFACE, font=(FONT, 11))
+        self.line.pack(pady=(0, 10))
 
-        # ---- live mic waveform (driven by the STT loop's RMS) ----
-        wave_card = tk.Frame(self.root, bg=CARD, highlightbackground=LINE,
-                             highlightthickness=1)
-        wave_card.pack(fill="x", padx=22, pady=(0, 10))
-        wcanvas = tk.Canvas(wave_card, width=320, height=48, bg=CARD,
+        # ---- waveform ----
+        wcard = tk.Frame(self.root, bg=SURFACE, highlightbackground=BORDER,
+                         highlightthickness=1)
+        wcard.pack(fill="x", padx=10, pady=(8, 0))
+        wcanvas = tk.Canvas(wcard, width=300, height=44, bg=SURFACE,
                             highlightthickness=0)
-        wcanvas.pack(pady=10)
-        self.wave = Waveform(wcanvas, width=320, height=48)
+        wcanvas.pack(pady=8)
+        self.wave = Waveform(wcanvas, width=300, height=44)
 
-        # ---- transcript (brief, fades - NOT a permanent textarea) ----
-        self.transcript = scrolledtext.ScrolledText(
-            self.root, bg=BG, fg=TXT, insertbackground=TXT,
-            font=(FONT, 10), wrap="word", borderwidth=0,
-            highlightthickness=0, relief="flat", padx=22, pady=8,
-            height=7, state="disabled")
-        self.transcript.tag_config("you", foreground=YOU)
-        self.transcript.tag_config("buddy", foreground=BUDDY)
-        self.transcript.pack(fill="both", expand=True, padx=14, pady=(6, 4))
+        # ---- bubbly chat ----
+        self.chat = scrolledtext.ScrolledText(
+            self.root, bg=BG, fg=TXT, insertbackground=TXT, font=(FONT, 10),
+            wrap="word", borderwidth=0, highlightthickness=0, relief="flat",
+            padx=10, pady=8, height=9, state="disabled")
+        self.chat.tag_config("you", foreground=YOU, lmargin1=40, lmargin2=40,
+                             rmargin=8, spacing1=4, spacing3=4)
+        self.chat.tag_config("buddy", foreground=BUDDY, lmargin1=8, lmargin2=8,
+                             rmargin=40, spacing1=4, spacing3=4)
+        self.chat.pack(fill="both", expand=True, padx=8, pady=(8, 4))
 
         # ---- CONDITIONAL input (only on a decisive question) ----
         self.input_frame = tk.Frame(self.root, bg=BG)
-        self.input = tk.Entry(self.input_frame, bg=CARD, fg=TXT,
-                              insertbackground=ACCENT,
-                              font=(FONT, 11),
+        self.input = tk.Entry(self.input_frame, bg=SURFACE_RAISED, fg=TXT,
+                              insertbackground=TEAL, font=(FONT, 11),
                               relief="flat", highlightthickness=0)
-        self.input.pack(fill="x", padx=22, pady=(0, 18), ipady=9)
+        self.input.pack(fill="x", padx=10, pady=(0, 10), ipady=8)
         self.input.bind("<Return>", self._on_send)
-        self.input_frame.pack_forget()  # hidden until asked
+        self.input_frame.pack_forget()
 
         self.session = Session(cfg, on_event=self._event)
 
     # ------------------------------------------------------------------
+    def _anim_in(self):
+        if _reduce_motion():
+            self.root.attributes("-alpha", 1.0)
+            return
+        self.root.attributes("-alpha", 0.0)
+        for i in range(1, 21):
+            self.root.after(i * 12, lambda a=i / 20: self.root.attributes("-alpha", a))
+
+    def _minimize(self):
+        self.root.withdraw()
+        self.root.after(4000, lambda: self.root.deiconify() if self.root.winfo_exists() else None)
+
+    def _start_drag(self, e):
+        self._drag["x"] = e.x
+        self._drag["y"] = e.y
+
+    def _on_drag(self, e):
+        x = self.root.winfo_x() + (e.x - self._drag["x"])
+        y = self.root.winfo_y() + (e.y - self._drag["y"])
+        self.root.geometry(f"+{x}+{y}")
+
     def _set_status(self, s):
         color, label = STATES.get(s, (MUTED, s))
         self.status.config(text=label, fg=color)
@@ -179,8 +248,8 @@ class BuddyGUI:
 
     def _show_input(self, prompt=None):
         if prompt:
-            self.line.config(text=prompt, fg=ACCENT)
-        self.input_frame.pack(fill="x")  # reveal ONLY now
+            self.line.config(text=prompt, fg=TEAL)
+        self.input_frame.pack(fill="x")
         self.input.focus_set()
 
     def _hide_input(self):
@@ -189,11 +258,13 @@ class BuddyGUI:
         self.line.config(text=f"Say \u201c{self.cfg.voice.wake_word}\u201d", fg=MUTED)
 
     def _append(self, who, text):
-        self.transcript.configure(state="normal")
-        self.transcript.insert("end", f"{who}: ", who.lower())
-        self.transcript.insert("end", f"{text}\n\n")
-        self.transcript.see("end")
-        self.transcript.configure(state="disabled")
+        self.chat.configure(state="normal")
+        tag = "you" if who == "You" else "buddy"
+        prefix = "You  " if who == "You" else "Buddy  "
+        self.chat.insert("end", prefix, tag)
+        self.chat.insert("end", f"{text}\n\n", tag)
+        self.chat.see("end")
+        self.chat.configure(state="disabled")
 
     def _event(self, kind, text):
         if kind == "status":
@@ -203,7 +274,6 @@ class BuddyGUI:
             elif text in ("thinking", "speaking", "listening"):
                 self.line.config(text=text.capitalize() + "...", fg=MUTED)
         elif kind == "prompt":
-            # decisive question -> reveal the input just for this
             self.root.after(0, lambda: self._show_input(text))
         else:
             self.root.after(0, lambda: self._append(
@@ -217,8 +287,7 @@ class BuddyGUI:
             return
         self._hide_input()
         self._set_status("thinking")
-        threading.Thread(target=self._run_turn, args=(text,),
-                          daemon=True).start()
+        threading.Thread(target=self._run_turn, args=(text,), daemon=True).start()
 
     def _run_turn(self, text):
         self.session.handle(text)
@@ -227,9 +296,6 @@ class BuddyGUI:
     def run(self):
         self._event("buddy", f"Hi, I'm DeskBuddy. Say '{self.cfg.voice.wake_word}' "
                              f"to wake me, then speak or type.")
-        # Wire the hands safety approval gate: destructive PC actions
-        # (click / type / key / shell) pop a confirm dialog when the
-        # user enabled confirm_destructive in setup.
         from deskbuddy.hands import safety
         import tkinter.messagebox as mb
 
@@ -249,14 +315,10 @@ class BuddyGUI:
 
     def _voice_loop(self):
         import importlib.util as _util
-
-        # No mic stack -> don't spin a dead loop. The GUI stays usable via typing.
         if _util.find_spec("sounddevice") is None:
             self.root.after(0, lambda: self.line.config(
                 text="Mic unavailable - type instead", fg=MUTED))
             return
-
-        # Wake word not enrolled yet -> tell the user how to enable voice.
         from deskbuddy.voice.wakeword import WakeWordEngine
         eng = WakeWordEngine(self.cfg.voice.wake_word)
         if not eng.trained:
@@ -266,13 +328,7 @@ class BuddyGUI:
             self.root.after(0, lambda: self.line.config(
                 text=f"Run 'buddy enroll' to enable voice", fg=MUTED))
             return
-
-        # Voice-first gate: uses the wake-word *prefix* check in loop(),
-        # which works WITHOUT enrollment (Whisper detects "jarvis ...").
-        # DeskBuddy sits quiet until you say the wake word, then takes one
-        # command - so it never burns turns on ambient chatter or its own voice.
         try:
-            # Drive the live waveform from the STT mic level callback.
             if hasattr(self.session.stt, "on_level"):
                 self.session.stt.on_level = lambda lvl: self.wave.push(lvl)
             self.session.loop()
